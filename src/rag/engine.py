@@ -6,7 +6,7 @@ em um banco vetorial (ChromaDB), permitindo buscas semânticas de alta precisão
 
 import os
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import chromadb
 from chromadb.config import Settings
 
@@ -14,20 +14,39 @@ from chromadb.config import Settings
 class KnowledgeBaseRAG:
     """Gerencia a base de conhecimento técnica e a busca semântica."""
 
-    def __init__(self, db_dir: str = "chroma_db", collection_name: str = "devsre_docs"):
-        self.db_dir = Path(db_dir)
+    def __init__(self, db_dir: Optional[str] = None, collection_name: str = "devsre_docs"):
+        if db_dir is None:
+            # Padrão: chroma_db no diretório raiz do pacote
+            default_dir = Path(__file__).resolve().parent.parent.parent / "chroma_db"
+            self.db_dir = default_dir if default_dir.parent.exists() else Path("chroma_db")
+        else:
+            self.db_dir = Path(db_dir)
+
         self.collection_name = collection_name
         self.client = chromadb.PersistentClient(path=str(self.db_dir))
         self.collection = self.client.get_or_create_collection(name=self.collection_name)
 
     def _chunk_markdown(self, content: str, source_name: str) -> List[Dict[str, Any]]:
-        """Divide documentos Markdown com base em cabeçalhos (Chunking Estruturado)."""
+        """Divide documentos Markdown com base em cabeçalhos (Chunking Estruturado).
+
+        Preserva blocos de código intactos (evita que linhas com '#' dentro de
+        blocos de código delimitados por ``` sejam interpretadas como títulos).
+        """
         sections = []
         current_header = "Introdução"
         current_lines = []
+        in_code_block = False
 
         for line in content.splitlines():
-            if line.startswith("#"):
+            stripped = line.strip()
+            # Alterna estado ao encontrar delimitador de bloco de código
+            if stripped.startswith("```"):
+                in_code_block = not in_code_block
+                current_lines.append(line)
+                continue
+
+            # Cabeçalho fora de bloco de código define nova seção
+            if not in_code_block and line.startswith("#"):
                 if current_lines:
                     text_chunk = "\n".join(current_lines).strip()
                     if text_chunk:
@@ -52,36 +71,49 @@ class KnowledgeBaseRAG:
 
         return sections
 
-    def index_directory(self, docs_dir: str = "knowledge_base") -> int:
-        """Lê todos os arquivos Markdown da pasta e indexa no banco vetorial."""
-        dir_path = Path(docs_dir)
+    def index_directory(self, docs_dir: Optional[str] = None, reset: bool = False) -> int:
+        """Lê todos os arquivos Markdown da pasta e indexa no banco vetorial de forma determinística."""
+        if reset:
+            try:
+                self.client.delete_collection(self.collection_name)
+                self.collection = self.client.get_or_create_collection(name=self.collection_name)
+            except Exception as e:
+                print(f"Aviso ao reiniciar coleção do ChromaDB: {e}")
+
+        if docs_dir is None:
+            default_docs = Path(__file__).resolve().parent.parent.parent / "knowledge_base"
+            dir_path = default_docs if default_docs.exists() else Path("knowledge_base")
+        else:
+            dir_path = Path(docs_dir)
+
         if not dir_path.exists():
             return 0
 
-        chunks_to_index = []
-        for file_path in dir_path.glob("*.md"):
+        total_indexed = 0
+        # Ordenação explícita para reprodutibilidade entre plataformas (Windows/Linux)
+        for file_path in sorted(dir_path.glob("*.md")):
             try:
                 with open(file_path, "r", encoding="utf-8") as f:
                     content = f.read()
-                chunks = self._chunk_markdown(content, file_path.name)
-                chunks_to_index.extend(chunks)
+                file_chunks = self._chunk_markdown(content, file_path.name)
+                if not file_chunks:
+                    continue
+
+                documents = [c["text"] for c in file_chunks]
+                metadatas = [{"source": c["source"], "section": c["section"]} for c in file_chunks]
+                # IDs determinísticos vinculados ao arquivo e à posição relativa
+                ids = [f"{c['source']}#{idx}" for idx, c in enumerate(file_chunks)]
+
+                self.collection.upsert(
+                    documents=documents,
+                    metadatas=metadatas,
+                    ids=ids,
+                )
+                total_indexed += len(documents)
             except Exception as e:
                 print(f"Erro ao processar arquivo {file_path}: {e}")
 
-        if not chunks_to_index:
-            return 0
-
-        # Adiciona ao ChromaDB com IDs determinísticos
-        documents = [c["text"] for c in chunks_to_index]
-        metadatas = [{"source": c["source"], "section": c["section"]} for c in chunks_to_index]
-        ids = [f"{c['source']}#{idx}" for idx, c in enumerate(chunks_to_index)]
-
-        self.collection.upsert(
-            documents=documents,
-            metadatas=metadatas,
-            ids=ids,
-        )
-        return len(documents)
+        return total_indexed
 
     def search(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
         """Realiza busca semântica por similaridade vetorial."""
