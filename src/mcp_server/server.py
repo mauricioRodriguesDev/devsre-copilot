@@ -2,10 +2,11 @@
 
 Expõe ferramentas seguras de inspeção de código, execução de testes,
 leitura de arquivos e aplicação de correções (patches) para o agente autônomo,
-com proteção rigorosa contra Path Traversal (CWE-22).
+com proteção rigorosa contra Path Traversal (CWE-22) e mascaramento de segredos (Redaction).
 """
 
 import os
+import re
 import sys
 import subprocess
 from pathlib import Path
@@ -14,6 +15,54 @@ from mcp.server.fastmcp import FastMCP
 
 # Inicializa o servidor FastMCP
 mcp = FastMCP("DevSRE-Tools")
+
+
+def sanitize_sensitive_data(text: str) -> str:
+    """Mascara credenciais sensíveis (chaves de API, senhas de banco, tokens JWT e Bearer).
+
+    Evita que segredos capturados em logs ou saídas de testes vazem para o prompt
+    da LLM ou fiquem armazenados em texto puro na sessão.
+    """
+    if not text:
+        return text
+
+    # 1. Mascara chaves de API da Google (AIza...)
+    text = re.sub(r"AIza[0-9A-Za-z\-_]{30,}", "AIza[REDACTED_GOOGLE_KEY]", text)
+
+    # 2. Mascara tokens JWT completos (header.payload.signature)
+    text = re.sub(
+        r"eyJ[A-Za-z0-9\-_=]+\.eyJ[A-Za-z0-9\-_=]+\.[A-Za-z0-9\-_.+/=]+",
+        "[REDACTED_JWT_TOKEN]",
+        text,
+    )
+
+    # 3. Mascara tokens de cabeçalho Bearer
+    text = re.sub(
+        r"(Bearer\s+)[A-Za-z0-9\-_.~+/=]{16,}",
+        r"\1[REDACTED_BEARER_TOKEN]",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # 4. Mascara senhas em URIs de conexão de banco de dados
+    # Ex: postgresql://user:senha123@host:5432/db -> postgresql://user:[REDACTED_PASSWORD]@host:5432/db
+    text = re.sub(
+        r"((?:postgresql|postgres|mysql|mariadb|mongodb|redis|amqp)://[^:\s/]+:)([^@\s]+)(@)",
+        r"\1[REDACTED_PASSWORD]\3",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    # 5. Mascara pares chave/valor de credenciais comuns
+    # Ex: password = "secret", api_key: "abc123456"
+    text = re.sub(
+        r"((?:api[_-]?key|secret|token|password|passwd|auth_token)\s*[:=]\s*['\"]?)([A-Za-z0-9\-_.~]{8,})(['\"]?)",
+        r"\1[REDACTED_SECRET]\3",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    return text
 
 
 def _resolve_safe_path(file_path: str, repo_path: str = ".") -> Tuple[Optional[Path], Optional[str]]:
@@ -233,9 +282,9 @@ def run_tests(test_path: str = "", verbose: bool = True, repo_path: str = ".") -
 
         combined = f"--- RESULTADO DOS TESTES (Exit code: {result.returncode}) ---\n"
         if output:
-            combined += f"\n[STDOUT]:\n{output}"
+            combined += f"\n[STDOUT]:\n{sanitize_sensitive_data(output)}"
         if errors:
-            combined += f"\n[STDERR]:\n{errors}"
+            combined += f"\n[STDERR]:\n{sanitize_sensitive_data(errors)}"
         return combined
     except subprocess.TimeoutExpired:
         return "Tempo limite excedido ao executar os testes (timeout de 45s)."
@@ -245,7 +294,8 @@ def run_tests(test_path: str = "", verbose: bool = True, repo_path: str = ".") -
 
 @mcp.tool()
 def read_application_logs(log_file: str, max_lines: int = 60, repo_path: str = ".") -> str:
-    """Lê as últimas linhas de um arquivo de log para diagnosticar erros e stack traces.
+    """Lê as últimas linhas de um arquivo de log para diagnosticar erros e stack traces,
+    aplicando sanitização e mascaramento automático de credenciais sensíveis.
 
     Args:
         log_file: Caminho para o arquivo de log.
@@ -264,7 +314,8 @@ def read_application_logs(log_file: str, max_lines: int = 60, repo_path: str = "
             lines = f.readlines()
 
         tail_lines = lines[-max_lines:]
-        return "".join(tail_lines) if tail_lines else "Arquivo de log vazio."
+        raw_output = "".join(tail_lines) if tail_lines else "Arquivo de log vazio."
+        return sanitize_sensitive_data(raw_output)
     except Exception as e:
         return f"Erro ao ler arquivo de log: {str(e)}"
 

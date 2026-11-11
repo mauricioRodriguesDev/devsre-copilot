@@ -2,7 +2,13 @@
 
 import tempfile
 from pathlib import Path
-from src.mcp_server.server import list_directory, read_file, apply_patch, read_application_logs
+from src.mcp_server.server import (
+    list_directory,
+    read_file,
+    apply_patch,
+    read_application_logs,
+    sanitize_sensitive_data,
+)
 
 
 def test_list_directory():
@@ -95,3 +101,36 @@ def test_read_logs_blocks_traversal():
     with tempfile.TemporaryDirectory() as tmpdir:
         result = read_application_logs(log_file="../system.log", repo_path=tmpdir)
         assert "Segurança:" in result
+
+
+# --- TESTES DE SEGURANÇA (REDACTION DE SEGREDOS) ---
+
+def test_sanitize_sensitive_data_masks_credentials():
+    """Valida a substituição de segredos (chaves de API, senhas de banco e tokens JWT)."""
+    raw = (
+        "Erro ao conectar com postgresql://postgres:super_secret_password_123@localhost:5432/mydb\n"
+        "Chave de api: AIzaSyA1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6\n"
+        "Header recebido: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.doNotLeakThisSignature\n"
+        "Configuracao: password='my_db_password_xyz'\n"
+    )
+    sanitized = sanitize_sensitive_data(raw)
+    assert "super_secret_password_123" not in sanitized
+    assert "[REDACTED_PASSWORD]" in sanitized
+    assert "AIzaSyA1B2C3D4E5F6G7H8I9J0K1L2M3N4O5P6" not in sanitized
+    assert "[REDACTED_GOOGLE_KEY]" in sanitized
+    assert "doNotLeakThisSignature" not in sanitized
+    assert "[REDACTED_JWT_TOKEN]" in sanitized
+    assert "my_db_password_xyz" not in sanitized
+    assert "[REDACTED_SECRET]" in sanitized
+
+
+def test_read_application_logs_redacts_secrets_in_file():
+    """Garante que logs lidos em disco tenham segredos mascarados antes de retornar."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        log_path = Path(tmpdir) / "app.log"
+        log_path.write_text("Failed login with token Bearer secret_access_token_123456789\n", encoding="utf-8")
+
+        result = read_application_logs(log_file="app.log", repo_path=tmpdir)
+        assert "secret_access_token_123456789" not in result
+        assert "[REDACTED_BEARER_TOKEN]" in result
+

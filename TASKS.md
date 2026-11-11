@@ -42,7 +42,7 @@ Este arquivo serve como **memória persistente** do projeto. Ele registra o prog
 
 ### Fase 5: Segurança e Hardening (EM ANDAMENTO)
 - [x] **Fix 1:** Blindagem contra Path Traversal em todas as ferramentas de arquivo (`is_relative_to`)
-- [ ] **Fix 2:** Sanitização e mascaramento de segredos/tokens em logs (`read_application_logs`)
+- [x] **Fix 2:** Sanitização e mascaramento de segredos/tokens em logs (`read_application_logs`)
 - [ ] **Fix 3:** Confirmação interativa (Human-in-the-Loop) para operações de escrita (`apply_patch`)
 - [x] **Testes:** Bateria de testes de segurança cobrindo tentativas de invasão e escape de diretório
 
