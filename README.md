@@ -87,9 +87,24 @@ cd devsre-copilot
 # Ative o ambiente virtual
 .\.venv\Scripts\activate   # No Windows
 
-# Instale as dependências
-pip install -r requirements.txt
+# Instale em modo editável com o comando CLI devsre
+pip install -e .
 
 # Configure suas credenciais
 copy .env.example .env
+```
+
+### Comandos da CLI `devsre`
+```bash
+# 1. Investigar falhas ou inspecionar qualquer repositório
+devsre investigate --repo "caminho/do/projeto" "Investigue a falha no teste de autenticação"
+
+# 2. Executar a suíte de avaliação (Evals) do RAG
+devsre eval
+
+# 3. Reindexar a base de conhecimento de Runbooks
+devsre rag-index
+
+# 4. Iniciar o servidor MCP local
+devsre mcp-serve
 ```

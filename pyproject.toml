@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "devsre-copilot"
+version = "0.1.0"
+description = "Autonomous Developer & SRE Copilot powered by Gemini, MCP, and RAG"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+    { name = "Mauricio Rodrigues", email = "dev@example.com" }
+]
+keywords = ["ai", "sre", "agent", "rag", "mcp", "gemini", "developer-tools"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Bug Tracking",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "mcp>=1.0.0,<2.0.0",
+    "google-genai>=1.0.0",
+    "pydantic>=2.0.0",
+    "chromadb>=0.5.0",
+    "gitpython>=3.1.0",
+    "pytest>=8.0.0",
+    "python-dotenv>=1.0.0",
+    "rich>=13.0.0",
+]
+
+[project.scripts]
+devsre = "src.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*"]

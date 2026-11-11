@@ -21,14 +21,14 @@ jobs:
           python-version: "3.12"
           cache: "pip"
 
-      - name: Instalar Dependências
+      - name: Instalar Dependências e Pacote CLI
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -e .
 
-      - name: Executar Evals Automatizados do RAG
+      - name: Executar Evals Automatizados do RAG via CLI
         run: |
-          python main.py eval
+          devsre eval
 
       - name: Executar Testes Unitários do Framework
         run: |
