@@ -63,6 +63,57 @@ class DevSREHarness:
             "search_runbooks": self._search_docs_tool,
         }
 
+    def _build_gemini_tools(self) -> List[Any]:
+        """Constrói wrappers tipados das ferramentas para integração com o Google GenAI SDK."""
+        def tool_git_status(repo_path: str = self.target_repo) -> str:
+            """Retorna o status do Git no repositório."""
+            return self.execute_tool("git_status", {"repo_path": repo_path})
+
+        def tool_git_diff(repo_path: str = self.target_repo, cached: bool = False) -> str:
+            """Retorna o diff do Git."""
+            return self.execute_tool("git_diff", {"repo_path": repo_path, "cached": cached})
+
+        def tool_list_directory(relative_path: str = ".", repo_path: str = self.target_repo) -> str:
+            """Lista arquivos e subpastas de um diretório no repositório."""
+            return self.execute_tool("list_directory", {"relative_path": relative_path, "repo_path": repo_path})
+
+        def tool_read_file(file_path: str, start_line: int = 1, line_count: int = 100, repo_path: str = self.target_repo) -> str:
+            """Lê trecho de um arquivo de código com numeração de linha."""
+            return self.execute_tool("read_file", {"file_path": file_path, "start_line": start_line, "line_count": line_count, "repo_path": repo_path})
+
+        def tool_apply_patch(file_path: str, search_block: str, replace_block: str, repo_path: str = self.target_repo, auto_approve: bool = self.auto_approve) -> str:
+            """Aplica uma correção (patch) cirúrgica em um arquivo substituindo exatamente um trecho de código."""
+            return self.execute_tool("apply_patch", {
+                "file_path": file_path,
+                "search_block": search_block,
+                "replace_block": replace_block,
+                "repo_path": repo_path,
+                "auto_approve": auto_approve,
+            })
+
+        def tool_run_tests(test_path: str = "", verbose: bool = True, repo_path: str = self.target_repo) -> str:
+            """Executa a suíte de testes com pytest no repositório."""
+            return self.execute_tool("run_tests", {"test_path": test_path, "verbose": verbose, "repo_path": repo_path})
+
+        def tool_read_application_logs(log_file: str, max_lines: int = 60, repo_path: str = self.target_repo) -> str:
+            """Lê as últimas linhas de um arquivo de log."""
+            return self.execute_tool("read_application_logs", {"log_file": log_file, "max_lines": max_lines, "repo_path": repo_path})
+
+        def tool_search_runbooks(query: str) -> str:
+            """Busca nos runbooks, padrões e documentações técnicas internas da empresa."""
+            return self.execute_tool("search_runbooks", {"query": query})
+
+        return [
+            tool_git_status,
+            tool_git_diff,
+            tool_list_directory,
+            tool_read_file,
+            tool_apply_patch,
+            tool_run_tests,
+            tool_read_application_logs,
+            tool_search_runbooks,
+        ]
+
     def _search_docs_tool(self, query: str) -> str:
         """Busca nos runbooks, padrões e documentações técnicas internas da empresa."""
         results = self.rag.search(query=query, top_k=3)
@@ -125,56 +176,7 @@ class DevSREHarness:
             from google.genai import types
 
             client = genai.Client(api_key=self.api_key)
-
-            # Wrappers para que o SDK use o target_repo como default
-            def tool_git_status(repo_path: str = self.target_repo) -> str:
-                """Retorna o status do Git no repositório."""
-                return self.execute_tool("git_status", {"repo_path": repo_path})
-
-            def tool_git_diff(repo_path: str = self.target_repo, cached: bool = False) -> str:
-                """Retorna o diff do Git."""
-                return self.execute_tool("git_diff", {"repo_path": repo_path, "cached": cached})
-
-            def tool_list_directory(relative_path: str = ".", repo_path: str = self.target_repo) -> str:
-                """Lista arquivos e subpastas de um diretório no repositório."""
-                return self.execute_tool("list_directory", {"relative_path": relative_path, "repo_path": repo_path})
-
-            def tool_read_file(file_path: str, start_line: int = 1, line_count: int = 100, repo_path: str = self.target_repo) -> str:
-                """Lê trecho de um arquivo de código com numeração de linha."""
-                return self.execute_tool("read_file", {"file_path": file_path, "start_line": start_line, "line_count": line_count, "repo_path": repo_path})
-
-            def tool_apply_patch(file_path: str, search_block: str, replace_block: str, repo_path: str = self.target_repo, auto_approve: bool = self.auto_approve) -> str:
-                """Aplica uma correção (patch) cirúrgica em um arquivo substituindo exatamente um trecho de código."""
-                return self.execute_tool("apply_patch", {
-                    "file_path": file_path,
-                    "search_block": search_block,
-                    "replace_block": replace_block,
-                    "repo_path": repo_path,
-                    "auto_approve": auto_approve,
-                })
-
-            def tool_run_tests(test_path: str = "", verbose: bool = True, repo_path: str = self.target_repo) -> str:
-                """Executa a suíte de testes com pytest no repositório."""
-                return self.execute_tool("run_tests", {"test_path": test_path, "verbose": verbose, "repo_path": repo_path})
-
-            def tool_read_application_logs(log_file: str, max_lines: int = 60, repo_path: str = self.target_repo) -> str:
-                """Lê as últimas linhas de um arquivo de log."""
-                return self.execute_tool("read_application_logs", {"log_file": log_file, "max_lines": max_lines, "repo_path": repo_path})
-
-            def tool_search_runbooks(query: str) -> str:
-                """Busca nos runbooks, padrões e documentações técnicas internas da empresa."""
-                return self.execute_tool("search_runbooks", {"query": query})
-
-            tools = [
-                tool_git_status,
-                tool_git_diff,
-                tool_list_directory,
-                tool_read_file,
-                tool_apply_patch,
-                tool_run_tests,
-                tool_read_application_logs,
-                tool_search_runbooks,
-            ]
+            tools = self._build_gemini_tools()
 
             system_instruction = (
                 "Você é um Engenheiro de Software e SRE sênior autônomo (DevSRE-Companion). "
