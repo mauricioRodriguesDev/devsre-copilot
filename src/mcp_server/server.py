@@ -1,26 +1,54 @@
 """Servidor MCP (Model Context Protocol) para DevSRE-Companion.
 
 Expõe ferramentas seguras de inspeção de código, execução de testes,
-leitura de arquivos e aplicação de correções (patches) para o agente autônomo.
+leitura de arquivos e aplicação de correções (patches) para o agente autônomo,
+com proteção rigorosa contra Path Traversal (CWE-22).
 """
 
 import os
 import sys
 import subprocess
 from pathlib import Path
+from typing import Optional, Tuple
 from mcp.server.fastmcp import FastMCP
 
 # Inicializa o servidor FastMCP
 mcp = FastMCP("DevSRE-Tools")
 
 
+def _resolve_safe_path(file_path: str, repo_path: str = ".") -> Tuple[Optional[Path], Optional[str]]:
+    """Valida e resolve com segurança um caminho de arquivo dentro do repositório alvo.
+
+    Protege contra vulnerabilidades de Path Traversal (CWE-22) bloqueando caminhos
+    absolutos e sequências de escape ('../') que tentem sair da raiz do projeto.
+    """
+    try:
+        base = Path(repo_path).resolve()
+        clean = Path(file_path)
+
+        # 1. Rejeita caminhos absolutos (ex: C:/Windows/..., /etc/passwd)
+        if clean.is_absolute():
+            return None, f"Segurança: caminhos absolutos não são permitidos ('{file_path}'). Use um caminho relativo ao repositório."
+
+        target = (base / clean).resolve()
+
+        # 2. Garante que o caminho resolvido seja estritamente filho do repositório
+        if not target.is_relative_to(base):
+            return None, f"Segurança: tentativa de Path Traversal detectada. O caminho '{file_path}' tenta acessar arquivos fora do repositório alvo."
+
+        return target, None
+    except Exception as e:
+        return None, f"Erro ao validar caminho de arquivo: {str(e)}"
+
+
 @mcp.tool()
 def git_status(repo_path: str = ".") -> str:
     """Retorna o status atual do repositório Git (arquivos modificados, staged e branch)."""
     try:
+        base = Path(repo_path).resolve()
         result = subprocess.run(
             ["git", "status", "--short", "--branch"],
-            cwd=repo_path,
+            cwd=str(base),
             capture_output=True,
             text=True,
             check=False,
@@ -43,12 +71,13 @@ def git_diff(repo_path: str = ".", cached: bool = False) -> str:
         cached: Se True, mostra o diff dos arquivos em stage (git diff --cached).
     """
     try:
+        base = Path(repo_path).resolve()
         cmd = ["git", "diff"]
         if cached:
             cmd.append("--cached")
         result = subprocess.run(
             cmd,
-            cwd=repo_path,
+            cwd=str(base),
             capture_output=True,
             text=True,
             check=False,
@@ -71,7 +100,10 @@ def list_directory(relative_path: str = ".", repo_path: str = ".") -> str:
         repo_path: Caminho raiz do repositório.
     """
     try:
-        target = (Path(repo_path) / relative_path).resolve()
+        target, err = _resolve_safe_path(relative_path, repo_path)
+        if err:
+            return err
+
         if not target.exists():
             return f"Diretório não encontrado: {relative_path}"
         if not target.is_dir():
@@ -100,7 +132,10 @@ def read_file(file_path: str, start_line: int = 1, line_count: int = 100, repo_p
         repo_path: Caminho raiz do repositório.
     """
     try:
-        path = (Path(repo_path) / file_path).resolve()
+        path, err = _resolve_safe_path(file_path, repo_path)
+        if err:
+            return err
+
         if not path.exists():
             return f"Arquivo não encontrado: {file_path}"
         if path.is_dir():
@@ -135,7 +170,10 @@ def apply_patch(file_path: str, search_block: str, replace_block: str, repo_path
         repo_path: Caminho raiz do repositório.
     """
     try:
-        path = (Path(repo_path) / file_path).resolve()
+        path, err = _resolve_safe_path(file_path, repo_path)
+        if err:
+            return err
+
         if not path.exists():
             return f"Arquivo não encontrado: {file_path}"
 
@@ -175,6 +213,7 @@ def run_tests(test_path: str = "", verbose: bool = True, repo_path: str = ".") -
         repo_path: Diretório onde executar os testes (padrão: '.').
     """
     try:
+        base = Path(repo_path).resolve()
         cmd = [sys.executable, "-m", "pytest"]
         if verbose:
             cmd.append("-v")
@@ -183,7 +222,7 @@ def run_tests(test_path: str = "", verbose: bool = True, repo_path: str = ".") -
 
         result = subprocess.run(
             cmd,
-            cwd=repo_path,
+            cwd=str(base),
             capture_output=True,
             text=True,
             check=False,
@@ -214,7 +253,10 @@ def read_application_logs(log_file: str, max_lines: int = 60, repo_path: str = "
         repo_path: Diretório raiz do repositório.
     """
     try:
-        path = (Path(repo_path) / log_file).resolve()
+        path, err = _resolve_safe_path(log_file, repo_path)
+        if err:
+            return err
+
         if not path.exists():
             return f"Arquivo de log não encontrado: {log_file}"
 

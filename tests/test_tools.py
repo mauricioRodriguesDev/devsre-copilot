@@ -2,14 +2,14 @@
 
 import tempfile
 from pathlib import Path
-from src.mcp_server.server import list_directory, read_file, apply_patch
+from src.mcp_server.server import list_directory, read_file, apply_patch, read_application_logs
 
 
 def test_list_directory():
     with tempfile.TemporaryDirectory() as tmpdir:
         (Path(tmpdir) / "app.py").touch()
         (Path(tmpdir) / "src").mkdir()
-        
+
         output = list_directory(repo_path=tmpdir)
         assert "app.py" in output
         assert "src/" in output
@@ -53,3 +53,45 @@ def test_apply_patch_not_found():
             repo_path=tmpdir,
         )
         assert "Erro de correspondência" in result
+
+
+# --- TESTES DE SEGURANÇA (ANTI-PATH TRAVERSAL) ---
+
+def test_read_file_blocks_relative_traversal():
+    """Garante que sequências '../' sejam bloqueadas ao tentar ler arquivos fora da raiz."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = read_file(file_path="../../etc/passwd", repo_path=tmpdir)
+        assert "Segurança: tentativa de Path Traversal detectada" in result
+
+
+def test_read_file_blocks_absolute_path():
+    """Garante que caminhos absolutos do sistema sejam bloqueados."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = read_file(file_path="C:/Windows/win.ini", repo_path=tmpdir)
+        assert "Segurança: caminhos absolutos não são permitidos" in result
+
+
+def test_apply_patch_blocks_traversal():
+    """Garante que apply_patch não modifique arquivos fora da raiz do repositório."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = apply_patch(
+            file_path="../outside.py",
+            search_block="a = 1",
+            replace_block="a = 2",
+            repo_path=tmpdir,
+        )
+        assert "Segurança:" in result
+
+
+def test_list_directory_blocks_traversal():
+    """Garante que list_directory não liste diretórios superiores do sistema."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = list_directory(relative_path="../../..", repo_path=tmpdir)
+        assert "Segurança:" in result
+
+
+def test_read_logs_blocks_traversal():
+    """Garante que read_application_logs não leia logs fora do repositório."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = read_application_logs(log_file="../system.log", repo_path=tmpdir)
+        assert "Segurança:" in result
