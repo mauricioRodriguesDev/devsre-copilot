@@ -35,4 +35,7 @@ devsre = "src.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["src*"]
+include = ["src*", "knowledge_base*"]
+
+[tool.setuptools.package-data]
+knowledge_base = ["*.md"]
