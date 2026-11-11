@@ -15,6 +15,9 @@ def cmd_investigate(args):
     query = " ".join(args.query) if args.query else "O teste de autenticação falhou. Investigue a causa e sugira a correção."
     harness.run_investigation_loop(user_instruction=query)
 
+    if getattr(args, "output_json", False) and harness.last_rca_report:
+        print(harness.last_rca_report.model_dump_json(indent=2))
+
 
 def cmd_mcp_serve(args):
     """Inicia o servidor MCP local para conexão com clientes MCP."""
@@ -27,14 +30,25 @@ def cmd_rag_index(args):
     """Reindexa todos os runbooks da base de conhecimento."""
     from src.rag.engine import KnowledgeBaseRAG
     rag = KnowledgeBaseRAG()
-    total = rag.index_directory("knowledge_base")
+    total = rag.index_directory(reset=True)
     console.print(f"[bold green]Indexação concluída com sucesso![/bold green] Total de seções indexadas: [bold cyan]{total}[/bold cyan]")
 
 
 def cmd_eval(args):
     """Executa a bateria de avaliação (Evals) automatizada do RAG."""
     from src.evals.eval_rag import run_rag_evals
-    run_rag_evals()
+    metrics = run_rag_evals()
+
+    # Salvaguarda de CI/CD: falha o processo com exit code 1 caso a precisão caia abaixo da meta
+    min_threshold = 1.0
+    if metrics["source_hit_rate"] < min_threshold or metrics["keyword_hit_rate"] < min_threshold:
+        console.print(
+            f"\n[bold red]FALHA DE REGRESSÃO NO RAG:[/bold red] As métricas de recuperação estão abaixo do limiar exigido ({min_threshold * 100:.0f}%)."
+        )
+        sys.exit(1)
+
+    console.print("\n[bold green]Sucesso: Todos os Evals do RAG atingiram os critérios de aprovação do CI/CD![/bold green]")
+    sys.exit(0)
 
 
 def main():
@@ -52,6 +66,12 @@ def main():
         dest="auto_approve",
         action="store_true",
         help="Aprova alterações em arquivos sem solicitar confirmação manual interativa",
+    )
+    p_investigate.add_argument(
+        "--json",
+        dest="output_json",
+        action="store_true",
+        help="Exporta o relatório final de RCA no formato JSON estruturado (Pydantic)",
     )
     p_investigate.add_argument("query", nargs="*", help="Instrução do desenvolvedor para o agente")
     p_investigate.set_defaults(func=cmd_investigate)

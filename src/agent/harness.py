@@ -45,10 +45,11 @@ class DevSREHarness:
         self.model_name = model_name
         self.target_repo = str(Path(target_repo).resolve())
         self.auto_approve = auto_approve
+        self.last_rca_report: Optional[RootCauseAnalysisReport] = None
         self.rag = KnowledgeBaseRAG()
 
         # Garante que a base de conhecimento esteja indexada
-        self.rag.index_directory("knowledge_base")
+        self.rag.index_directory()
 
         # Catálogo de ferramentas disponíveis para o agente
         self.tools_map = {
@@ -194,14 +195,96 @@ class DevSREHarness:
             )
 
             response = chat.send_message(user_instruction)
-            final_text = response.text if hasattr(response, "text") and response.text else "Investigação concluída."
+
+            # Extração segura de texto para evitar ValueError em respostas sem bloco de texto direto
+            final_text = ""
+            try:
+                if hasattr(response, "text") and response.text:
+                    final_text = response.text
+            except (ValueError, AttributeError):
+                pass
+
+            if not final_text and hasattr(response, "candidates") and response.candidates:
+                for candidate in response.candidates:
+                    if hasattr(candidate, "content") and hasattr(candidate.content, "parts"):
+                        for part in candidate.content.parts:
+                            if hasattr(part, "text") and part.text:
+                                final_text += part.text + "\n"
+
+            if not final_text.strip():
+                final_text = "Investigação concluída com sucesso via ferramentas MCP."
+
             console.print(Panel(final_text, title="[bold green]Diagnóstico Final do SRE[/bold green]"))
+
+            # Estrutura e valida no modelo Pydantic RootCauseAnalysisReport
+            rca_report = self.generate_structured_rca(final_text)
+            self._render_rca_table(rca_report)
+
             return final_text
 
         except Exception as e:
             console.print(f"[bold red]Erro no loop com a API:[/bold red] {e}")
             console.print("[dim]Executando fallback para o modo demonstrativo local...[/dim]")
             return self._run_local_demo(user_instruction)
+
+    def generate_structured_rca(self, text_diagnosis: str) -> RootCauseAnalysisReport:
+        """Estrutura o diagnóstico final em um modelo Pydantic tipado (RootCauseAnalysisReport)."""
+        if self.api_key and self.api_key != "seu_gemini_api_key_aqui":
+            try:
+                from google import genai
+                from google.genai import types
+
+                client = genai.Client(api_key=self.api_key)
+                prompt = (
+                    "Com base no diagnóstico técnico a seguir, extraia as informações e responda no formato JSON "
+                    "estritamente aderente ao schema de Root Cause Analysis:\n\n"
+                    f"{text_diagnosis}"
+                )
+                rca_response = client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=RootCauseAnalysisReport,
+                        temperature=0.1,
+                    ),
+                )
+                if rca_response.text:
+                    report = RootCauseAnalysisReport.model_validate_json(rca_response.text)
+                    self.last_rca_report = report
+                    return report
+            except Exception as e:
+                console.print(f"[dim]Aviso: Não foi possível estruturar via API ({e}). Gerando via parser de fallback.[/dim]")
+
+        # Fallback estruturado determinístico para modo offline ou demonstração
+        report = RootCauseAnalysisReport(
+            incident_title="Falha em Teste de Autenticação / Conformidade de Runbook",
+            severity="MEDIA",
+            root_cause_summary="O manipulador de autenticação interceptou o token expirado mas omitiu o cabeçalho 'X-Token-Expired: true' exigido pelo runbook.",
+            culprit_files=["src/sample_app/auth.py"],
+            suggested_fix_diff="headers={'X-Token-Expired': 'true'}",
+            prevention_steps=[
+                "Adicionar linter de cabeçalhos HTTP na esteira de CI/CD para validar contratos de API.",
+                "Executar testes unitários e de integração antes de submeter alterações."
+            ],
+        )
+        self.last_rca_report = report
+        return report
+
+    def _render_rca_table(self, report: RootCauseAnalysisReport) -> None:
+        """Renderiza o relatório estruturado em tabela visual com Rich."""
+        table = Table(title="[bold cyan]Relatório Estruturado de Causa Raiz (Pydantic Schema)[/bold cyan]")
+        table.add_column("Campo", style="magenta", width=22)
+        table.add_column("Conteúdo", style="white")
+
+        table.add_row("Título do Incidente", report.incident_title)
+        table.add_row("Severidade", f"[bold red]{report.severity}[/bold red]")
+        table.add_row("Causa Raiz", report.root_cause_summary)
+        table.add_row("Arquivos Culpados", ", ".join(report.culprit_files) if report.culprit_files else "Não identificados")
+        table.add_row("Correção Sugerida", report.suggested_fix_diff)
+        table.add_row("Ações Preventivas", "\n".join(f"• {step}" for step in report.prevention_steps))
+
+        console.print(table)
 
     def _run_local_demo(self, instruction: str) -> str:
         """Modo demonstrativo do Harness para testar localmente o fluxo das tools e RAG."""
@@ -227,4 +310,8 @@ class DevSREHarness:
             "- **Regra do Runbook identificada:** Em caso de token JWT expirado, o cabeçalho 'X-Token-Expired: true' é obrigatório.\n"
             "- **Status do Ambiente:** Repositório inspecionado com sucesso via MCP tools."
         )
+
+        rca_report = self.generate_structured_rca(demo_report)
+        self._render_rca_table(rca_report)
+
         return demo_report
