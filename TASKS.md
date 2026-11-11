@@ -48,9 +48,10 @@ Este arquivo serve como **memória persistente** do projeto. Ele registra o prog
 - [x] **Testes:** Bateria de testes de segurança cobrindo tentativas de invasão e escape de diretório
 
 ### Fase 6: Fine-Tuning com LoRA no Google Colab
-- [x] Dataset estruturado de treinamento criado em `colab_finetuning/rca_dataset.jsonl`
+- [x] Dataset estruturado de treinamento criado em `colab_finetuning/rca_dataset.jsonl` (expandido para 10 cenários reais de SRE)
 - [x] Script de fine-tuning com QLoRA/LoRA pronto em `colab_finetuning/fine_tune_lora.py`
-- [ ] Execução do treinamento no Google Colab Pro com GPU
+- [x] Notebook interativo com visualização de loss e inferência comparativa em `colab_finetuning/devsre_lora_finetuning.ipynb`
+- [ ] Execução do treinamento no Google Colab Pro com GPU (T4/L4/A100)
 - [ ] Avaliação comparativa de aderência ao formato (Modelo Base vs Modelo Fine-Tuned)
 
 ### Fase 7: Publicação e Apresentação de Portfólio
