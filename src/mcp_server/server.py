@@ -18,6 +18,36 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("DevSRE-Tools")
 
 
+# Conjuntos de arquivos, extensões e diretórios restritos para prevenir vazamentos e adulterações
+BLOCKED_SENSITIVE_FILES = {
+    ".env",
+    ".env.local",
+    ".env.production",
+    ".env.staging",
+    ".env.test",
+    "credentials.json",
+    "service_account.json",
+    "id_rsa",
+    "id_ed25519",
+}
+
+BLOCKED_SENSITIVE_EXTENSIONS = {
+    ".pem",
+    ".key",
+    ".p12",
+    ".pfx",
+}
+
+BLOCKED_SENSITIVE_DIRS = {
+    ".git",
+    ".venv",
+    "venv",
+    "env",
+    ".vscode",
+    ".idea",
+}
+
+
 def sanitize_sensitive_data(text: str) -> str:
     """Mascara credenciais sensíveis (chaves de API, senhas de banco, tokens JWT e Bearer).
 
@@ -27,8 +57,12 @@ def sanitize_sensitive_data(text: str) -> str:
     if not text:
         return text
 
-    # 1. Mascara chaves de API da Google (AIza...)
-    text = re.sub(r"AIza[0-9A-Za-z\-_]{30,}", "AIza[REDACTED_GOOGLE_KEY]", text)
+    # 1. Mascara chaves de API da Google (AIza... e novas chaves de projeto AQ...)
+    text = re.sub(
+        r"(?:AIza[0-9A-Za-z\-_]{30,}|AQ\.[A-Za-z0-9\-_]{20,})",
+        "[REDACTED_GOOGLE_KEY]",
+        text,
+    )
 
     # 2. Mascara tokens JWT completos (header.payload.signature)
     text = re.sub(
@@ -68,8 +102,8 @@ def _resolve_safe_path(file_path: str, repo_path: str = ".") -> Tuple[Optional[P
     """Valida e resolve com segurança um caminho de arquivo dentro do repositório alvo.
 
     Protege contra vulnerabilidades de Path Traversal (CWE-22) bloqueando caminhos
-    absolutos, letras de unidade do Windows (ex: C:foo) e sequências de escape ('../')
-    que tentem sair da raiz do projeto.
+    absolutos, letras de unidade do Windows (ex: C:foo), sequências de escape ('../')
+    e arquivos/diretórios sensíveis (.env, .git/, chaves privadas).
     """
     try:
         base = Path(repo_path).resolve()
@@ -79,9 +113,19 @@ def _resolve_safe_path(file_path: str, repo_path: str = ".") -> Tuple[Optional[P
         if clean.is_absolute() or bool(clean.drive):
             return None, f"Segurança: caminhos absolutos ou com unidade não são permitidos ('{file_path}'). Use um caminho relativo ao repositório."
 
+        # 2. Bloqueia acesso a arquivos ou extensões sensíveis (.env, .pem, .key, credentials.json)
+        file_name = clean.name.lower()
+        if file_name in BLOCKED_SENSITIVE_FILES or clean.suffix.lower() in BLOCKED_SENSITIVE_EXTENSIONS:
+            return None, f"Segurança: acesso a arquivos ou diretórios protegidos/sensíveis não é permitido ('{file_path}')."
+
+        # 3. Bloqueia acesso a pastas protegidas (.git, .venv, .vscode, .idea)
+        for part in clean.parts:
+            if part.lower() in BLOCKED_SENSITIVE_DIRS:
+                return None, f"Segurança: acesso a arquivos ou diretórios protegidos/sensíveis não é permitido ('{file_path}')."
+
         target = (base / clean).resolve()
 
-        # 2. Garante que o caminho resolvido seja estritamente filho do repositório
+        # 4. Garante que o caminho resolvido seja estritamente filho do repositório
         if not target.is_relative_to(base):
             return None, f"Segurança: tentativa de Path Traversal detectada. O caminho '{file_path}' tenta acessar arquivos fora do repositório alvo."
 
@@ -190,6 +234,10 @@ def read_file(file_path: str, start_line: int = 1, line_count: int = 100, repo_p
         if path.is_dir():
             return f"O caminho aponta para um diretório, não um arquivo: {file_path}"
 
+        # Salvaguarda contra estouro de memória: rejeita arquivos maiores que 5MB
+        if path.stat().st_size > 5 * 1024 * 1024:
+            return f"Segurança: arquivo excede o limite máximo permitido de 5MB para inspeção: {file_path}"
+
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             lines = f.readlines()
 
@@ -203,7 +251,8 @@ def read_file(file_path: str, start_line: int = 1, line_count: int = 100, repo_p
         for idx, line in enumerate(selected_lines, start=start_idx + 1):
             output.append(f"{idx:4d} | {line.rstrip()}")
 
-        return "\n".join(output)
+        raw_result = "\n".join(output)
+        return sanitize_sensitive_data(raw_result)
     except Exception as e:
         return f"Erro ao ler arquivo {file_path}: {str(e)}"
 

@@ -230,3 +230,61 @@ def test_read_file_blocks_drive_relative_path():
         assert "Segurança:" in result
 
 
+def test_read_and_patch_block_sensitive_dotfiles():
+    """Garante que .env, .git e chaves privadas sejam estritamente bloqueados contra leitura e escrita."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        (Path(tmpdir) / ".env").write_text("SECRET_KEY=123456\n", encoding="utf-8")
+        git_dir = Path(tmpdir) / ".git"
+        git_dir.mkdir()
+        (git_dir / "config").write_text("[core]\n", encoding="utf-8")
+
+        # 1. Leitura bloqueada em .env
+        res_read_env = read_file(file_path=".env", repo_path=tmpdir)
+        assert "Segurança: acesso a arquivos ou diretórios protegidos/sensíveis não é permitido" in res_read_env
+
+        # 2. Patch bloqueado em .env
+        res_patch_env = apply_patch(
+            file_path=".env",
+            search_block="SECRET_KEY=123456",
+            replace_block="SECRET_KEY=hacked",
+            repo_path=tmpdir,
+            auto_approve=True,
+        )
+        assert "Segurança: acesso a arquivos ou diretórios protegidos/sensíveis não é permitido" in res_patch_env
+
+        # 3. Leitura e patch bloqueados em .git/
+        res_read_git = read_file(file_path=".git/config", repo_path=tmpdir)
+        assert "Segurança: acesso a arquivos ou diretórios protegidos/sensíveis não é permitido" in res_read_git
+
+        res_patch_git = apply_patch(
+            file_path=".git/config",
+            search_block="[core]",
+            replace_block="[hacked]",
+            repo_path=tmpdir,
+            auto_approve=True,
+        )
+        assert "Segurança: acesso a arquivos ou diretórios protegidos/sensíveis não é permitido" in res_patch_git
+
+
+def test_sanitize_sensitive_data_masks_modern_google_aq_keys():
+    """Valida redação de novas chaves Google AI Studio com prefixo AQ."""
+    raw = "gemini_key = 'AQ.FakeExampleKeyForTestingPurposesOnly1234567890'"
+    sanitized = sanitize_sensitive_data(raw)
+    assert "AQ.FakeExampleKeyForTestingPurposesOnly1234567890" not in sanitized
+    assert "[REDACTED_GOOGLE_KEY]" in sanitized
+
+
+def test_read_file_blocks_oversized_files():
+    """Garante que arquivos com mais de 5MB sejam rejeitados para evitar estouro de memória."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        big_file = Path(tmpdir) / "huge_data.bin"
+        # Cria arquivo esparso ou com 5.5MB
+        with open(big_file, "wb") as f:
+            f.seek(6 * 1024 * 1024)
+            f.write(b"\0")
+
+        result = read_file(file_path="huge_data.bin", repo_path=tmpdir)
+        assert "Segurança: arquivo excede o limite máximo permitido de 5MB" in result
+
+
+
