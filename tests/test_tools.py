@@ -42,8 +42,69 @@ def test_apply_patch_success():
             search_block='status = "error"',
             replace_block='status = "ok"',
             repo_path=tmpdir,
+            auto_approve=True,
         )
         assert "Sucesso" in result
+        assert file_path.read_text(encoding="utf-8") == 'status = "ok"\n'
+
+
+def test_apply_patch_blocks_in_headless_without_approval():
+    """Garante que execução sem terminal interativo bloqueie patches se auto_approve for False."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        file_path = Path(tmpdir) / "code.py"
+        file_path.write_text('status = "error"\n', encoding="utf-8")
+
+        result = apply_patch(
+            file_path="code.py",
+            search_block='status = "error"',
+            replace_block='status = "ok"',
+            repo_path=tmpdir,
+            auto_approve=False,
+        )
+        assert "Proteção de Segurança: execução em ambiente não-interativo requer flag auto_approve=True" in result
+        # Confirma que o arquivo NÃO foi alterado
+        assert file_path.read_text(encoding="utf-8") == 'status = "error"\n'
+
+
+def test_apply_patch_interactive_rejection(monkeypatch):
+    """Simula um desenvolvedor rejeitando o patch com 'n' no terminal interativo."""
+    import sys
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt: "n")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        file_path = Path(tmpdir) / "code.py"
+        file_path.write_text('status = "error"\n', encoding="utf-8")
+
+        result = apply_patch(
+            file_path="code.py",
+            search_block='status = "error"',
+            replace_block='status = "ok"',
+            repo_path=tmpdir,
+            auto_approve=False,
+        )
+        assert "Operação cancelada pelo desenvolvedor" in result
+        assert file_path.read_text(encoding="utf-8") == 'status = "error"\n'
+
+
+def test_apply_patch_interactive_approval(monkeypatch):
+    """Simula um desenvolvedor aprovando o patch com 's' no terminal interativo."""
+    import sys
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt: "s")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        file_path = Path(tmpdir) / "code.py"
+        file_path.write_text('status = "error"\n', encoding="utf-8")
+
+        result = apply_patch(
+            file_path="code.py",
+            search_block='status = "error"',
+            replace_block='status = "ok"',
+            repo_path=tmpdir,
+            auto_approve=False,
+        )
+        assert "Sucesso: patch aplicado com êxito" in result
         assert file_path.read_text(encoding="utf-8") == 'status = "ok"\n'
 
 

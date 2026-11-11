@@ -2,7 +2,8 @@
 
 Expõe ferramentas seguras de inspeção de código, execução de testes,
 leitura de arquivos e aplicação de correções (patches) para o agente autônomo,
-com proteção rigorosa contra Path Traversal (CWE-22) e mascaramento de segredos (Redaction).
+com proteção rigorosa contra Path Traversal (CWE-22), mascaramento de segredos (Redaction)
+e controle de escrita com Human-in-the-Loop (OWASP LLM06).
 """
 
 import os
@@ -45,7 +46,6 @@ def sanitize_sensitive_data(text: str) -> str:
     )
 
     # 4. Mascara senhas em URIs de conexão de banco de dados
-    # Ex: postgresql://user:senha123@host:5432/db -> postgresql://user:[REDACTED_PASSWORD]@host:5432/db
     text = re.sub(
         r"((?:postgresql|postgres|mysql|mariadb|mongodb|redis|amqp)://[^:\s/]+:)([^@\s]+)(@)",
         r"\1[REDACTED_PASSWORD]\3",
@@ -54,7 +54,6 @@ def sanitize_sensitive_data(text: str) -> str:
     )
 
     # 5. Mascara pares chave/valor de credenciais comuns
-    # Ex: password = "secret", api_key: "abc123456"
     text = re.sub(
         r"((?:api[_-]?key|secret|token|password|passwd|auth_token)\s*[:=]\s*['\"]?)([A-Za-z0-9\-_.~]{8,})(['\"]?)",
         r"\1[REDACTED_SECRET]\3",
@@ -209,14 +208,24 @@ def read_file(file_path: str, start_line: int = 1, line_count: int = 100, repo_p
 
 
 @mcp.tool()
-def apply_patch(file_path: str, search_block: str, replace_block: str, repo_path: str = ".") -> str:
+def apply_patch(
+    file_path: str,
+    search_block: str,
+    replace_block: str,
+    repo_path: str = ".",
+    auto_approve: bool = False,
+) -> str:
     """Aplica uma correção (patch) cirúrgica em um arquivo substituindo exatamente um trecho de código.
+
+    Possui proteção Human-in-the-Loop: solicita confirmação interativa antes de alterar o disco,
+    a menos que auto_approve=True seja explicitado.
 
     Args:
         file_path: Caminho relativo do arquivo a ser modificado.
         search_block: Trecho exato de código a ser substituído.
         replace_block: Novo código que entrará no lugar.
         repo_path: Caminho raiz do repositório.
+        auto_approve: Se True, aplica a alteração sem solicitar confirmação manual.
     """
     try:
         path, err = _resolve_safe_path(file_path, repo_path)
@@ -241,6 +250,29 @@ def apply_patch(file_path: str, search_block: str, replace_block: str, repo_path
                 f"Ambiguidade: o bloco a ser substituído aparece {occurrences} vezes no arquivo. "
                 "Forneça mais linhas de contexto ao redor para tornar a substituição unívoca."
             )
+
+        # Gate Human-in-the-Loop de Confirmação Prévia
+        if not auto_approve:
+            diff_preview = (
+                f"\n--- [PROPOSTA DE PATCH EM: {file_path}] ---\n"
+                f"[-] REMOVER:\n{search_block}\n\n"
+                f"[+] INSERIR:\n{replace_block}\n"
+                f"--------------------------------------------"
+            )
+            print(diff_preview)
+
+            if sys.stdin and sys.stdin.isatty():
+                try:
+                    choice = input(f"Confirmar aplicação do patch em '{file_path}'? [s/N]: ").strip().lower()
+                    if choice not in ("s", "sim", "y", "yes"):
+                        return f"Operação cancelada pelo desenvolvedor: o patch em '{file_path}' não foi aplicado."
+                except (EOFError, KeyboardInterrupt):
+                    return f"Operação abortada: confirmação interrompida para '{file_path}'."
+            else:
+                return (
+                    f"Proteção de Segurança: execução em ambiente não-interativo requer flag auto_approve=True "
+                    f"para autorizar gravação em disco no arquivo '{file_path}'."
+                )
 
         new_content = content.replace(search_block, replace_block, 1)
 

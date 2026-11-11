@@ -39,10 +39,12 @@ class DevSREHarness:
         api_key: Optional[str] = None,
         model_name: str = "gemini-3.8-flash",
         target_repo: str = ".",
+        auto_approve: bool = False,
     ):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         self.model_name = model_name
         self.target_repo = str(Path(target_repo).resolve())
+        self.auto_approve = auto_approve
         self.rag = KnowledgeBaseRAG()
 
         # Garante que a base de conhecimento esteja indexada
@@ -84,6 +86,11 @@ class DevSREHarness:
             if "repo_path" in sig.parameters:
                 if "repo_path" not in arguments or arguments["repo_path"] == ".":
                     arguments["repo_path"] = self.target_repo
+
+            # Injeta auto_approve automaticamente se a ferramenta suportar
+            if "auto_approve" in sig.parameters:
+                if "auto_approve" not in arguments:
+                    arguments["auto_approve"] = self.auto_approve
 
             # Limita tamanho de saída para proteger a janela de contexto
             result = str(fn(**arguments))
@@ -135,9 +142,15 @@ class DevSREHarness:
                 """Lê trecho de um arquivo de código com numeração de linha."""
                 return self.execute_tool("read_file", {"file_path": file_path, "start_line": start_line, "line_count": line_count, "repo_path": repo_path})
 
-            def tool_apply_patch(file_path: str, search_block: str, replace_block: str, repo_path: str = self.target_repo) -> str:
+            def tool_apply_patch(file_path: str, search_block: str, replace_block: str, repo_path: str = self.target_repo, auto_approve: bool = self.auto_approve) -> str:
                 """Aplica uma correção (patch) cirúrgica em um arquivo substituindo exatamente um trecho de código."""
-                return self.execute_tool("apply_patch", {"file_path": file_path, "search_block": search_block, "replace_block": replace_block, "repo_path": repo_path})
+                return self.execute_tool("apply_patch", {
+                    "file_path": file_path,
+                    "search_block": search_block,
+                    "replace_block": replace_block,
+                    "repo_path": repo_path,
+                    "auto_approve": auto_approve,
+                })
 
             def tool_run_tests(test_path: str = "", verbose: bool = True, repo_path: str = self.target_repo) -> str:
                 """Executa a suíte de testes com pytest no repositório."""
