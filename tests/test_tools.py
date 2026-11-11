@@ -6,6 +6,7 @@ from src.mcp_server.server import (
     list_directory,
     read_file,
     apply_patch,
+    run_tests,
     read_application_logs,
     sanitize_sensitive_data,
 )
@@ -135,7 +136,7 @@ def test_read_file_blocks_absolute_path():
     """Garante que caminhos absolutos do sistema sejam bloqueados."""
     with tempfile.TemporaryDirectory() as tmpdir:
         result = read_file(file_path="C:/Windows/win.ini", repo_path=tmpdir)
-        assert "Segurança: caminhos absolutos não são permitidos" in result
+        assert "Segurança: caminhos absolutos ou com unidade não são permitidos" in result
 
 
 def test_apply_patch_blocks_traversal():
@@ -194,4 +195,38 @@ def test_read_application_logs_redacts_secrets_in_file():
         result = read_application_logs(log_file="app.log", repo_path=tmpdir)
         assert "secret_access_token_123456789" not in result
         assert "[REDACTED_BEARER_TOKEN]" in result
+
+
+def test_sanitize_sensitive_data_masks_complex_passwords():
+    """Valida redação de senhas com caracteres especiais (@, #, $, !)."""
+    raw = "database_config: password='P@ssw0rd!#$*' auth_token='SecretKey!999#.'"
+    sanitized = sanitize_sensitive_data(raw)
+    assert "P@ssw0rd!#$*" not in sanitized
+    assert "SecretKey!999#." not in sanitized
+    assert "[REDACTED_SECRET]" in sanitized
+
+
+def test_run_tests_blocks_argument_injection():
+    """Garante que flags e opções do pytest sejam bloqueadas em test_path."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        res1 = run_tests(test_path="-o cache_dir=/tmp", repo_path=tmpdir)
+        assert "Segurança: opções e flags de linha de comando não são permitidas" in res1
+
+        res2 = run_tests(test_path="--override-ini=cache_dir=/tmp", repo_path=tmpdir)
+        assert "Segurança: opções e flags de linha de comando não são permitidas" in res2
+
+
+def test_run_tests_blocks_path_traversal():
+    """Garante que test_path não possa apontar para arquivos fora do repositório."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = run_tests(test_path="../../external_test.py", repo_path=tmpdir)
+        assert "Segurança: tentativa de Path Traversal detectada" in result
+
+
+def test_read_file_blocks_drive_relative_path():
+    """Garante que caminhos com letra de unidade (ex: C:foo) sejam bloqueados no Windows."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        result = read_file(file_path="C:malicious.py", repo_path=tmpdir)
+        assert "Segurança:" in result
+
 

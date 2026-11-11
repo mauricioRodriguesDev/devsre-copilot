@@ -53,9 +53,9 @@ def sanitize_sensitive_data(text: str) -> str:
         flags=re.IGNORECASE,
     )
 
-    # 5. Mascara pares chave/valor de credenciais comuns
+    # 5. Mascara pares chave/valor de credenciais comuns (incluindo caracteres especiais)
     text = re.sub(
-        r"((?:api[_-]?key|secret|token|password|passwd|auth_token)\s*[:=]\s*['\"]?)([A-Za-z0-9\-_.~]{8,})(['\"]?)",
+        r"((?:api[_-]?key|secret|token|password|passwd|auth_token)\s*[:=]\s*['\"]?)([^\s'\",;\r\n]{6,})(['\"]?)",
         r"\1[REDACTED_SECRET]\3",
         text,
         flags=re.IGNORECASE,
@@ -68,15 +68,16 @@ def _resolve_safe_path(file_path: str, repo_path: str = ".") -> Tuple[Optional[P
     """Valida e resolve com segurança um caminho de arquivo dentro do repositório alvo.
 
     Protege contra vulnerabilidades de Path Traversal (CWE-22) bloqueando caminhos
-    absolutos e sequências de escape ('../') que tentem sair da raiz do projeto.
+    absolutos, letras de unidade do Windows (ex: C:foo) e sequências de escape ('../')
+    que tentem sair da raiz do projeto.
     """
     try:
         base = Path(repo_path).resolve()
         clean = Path(file_path)
 
-        # 1. Rejeita caminhos absolutos (ex: C:/Windows/..., /etc/passwd)
-        if clean.is_absolute():
-            return None, f"Segurança: caminhos absolutos não são permitidos ('{file_path}'). Use um caminho relativo ao repositório."
+        # 1. Rejeita caminhos absolutos ou com unidade de disco (ex: C:/Windows/..., C:foo, /etc/passwd)
+        if clean.is_absolute() or bool(clean.drive):
+            return None, f"Segurança: caminhos absolutos ou com unidade não são permitidos ('{file_path}'). Use um caminho relativo ao repositório."
 
         target = (base / clean).resolve()
 
@@ -288,6 +289,8 @@ def apply_patch(
 def run_tests(test_path: str = "", verbose: bool = True, repo_path: str = ".") -> str:
     """Executa a suíte de testes com pytest e captura o resultado completo e eventuais tracebacks.
 
+    Protegido contra Argument Injection (flags como -o, -c) e Path Traversal em test_path.
+
     Args:
         test_path: Caminho opcional para um arquivo ou diretório de teste (ex: 'tests/test_auth.py').
         verbose: Se True, executa com flag -v para detalhes de cada teste.
@@ -298,8 +301,20 @@ def run_tests(test_path: str = "", verbose: bool = True, repo_path: str = ".") -
         cmd = [sys.executable, "-m", "pytest"]
         if verbose:
             cmd.append("-v")
-        if test_path.strip():
-            cmd.append(test_path.strip())
+
+        clean_test = test_path.strip()
+        if clean_test:
+            # 1. Proteção contra Argument Injection (ex: -o, -c, --import-mode, etc)
+            if clean_test.startswith("-"):
+                return f"Segurança: opções e flags de linha de comando não são permitidas em test_path ('{test_path}')."
+
+            # 2. Proteção contra Path Traversal em test_path
+            path_obj, err = _resolve_safe_path(clean_test, repo_path)
+            if err:
+                return err
+            if not path_obj.exists():
+                return f"Arquivo ou diretório de testes não encontrado: {clean_test}"
+            cmd.append(clean_test)
 
         result = subprocess.run(
             cmd,
