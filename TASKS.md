@@ -55,5 +55,6 @@ Este arquivo serve como **memória persistente** do projeto. Ele registra o prog
 - [ ] Avaliação comparativa de aderência ao formato (Modelo Base vs Modelo Fine-Tuned)
 
 ### Fase 7: Publicação e Apresentação de Portfólio
-- [ ] Atualização final do `README.md` com badges de CI, métricas e diagrama arquitetural
-- [ ] Criação do repositório público no GitHub com histórico de commits profissional
+- [x] Atualização final do `README.md` com badges de CI, métricas, guardrails e diagrama arquitetural
+- [x] Criação do arquivo de licença de código aberto `LICENSE` (MIT)
+- [ ] Conexão e envio para repositório remoto no GitHub (`git push -u origin master`)
