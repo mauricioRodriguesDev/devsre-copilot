@@ -11,7 +11,7 @@ console = Console()
 def cmd_investigate(args):
     """Dispara a investigação autônoma do agente."""
     from src.agent.harness import DevSREHarness
-    harness = DevSREHarness()
+    harness = DevSREHarness(target_repo=args.repo)
     query = " ".join(args.query) if args.query else "O teste de autenticação falhou. Investigue a causa e sugira a correção."
     harness.run_investigation_loop(user_instruction=query)
 
@@ -43,6 +43,7 @@ def main():
 
     # Comando: investigate
     p_investigate = subparsers.add_parser("investigate", help="Executa o agente em uma tarefa de investigação")
+    p_investigate.add_argument("--repo", "-r", default=".", help="Caminho do repositório a ser analisado (padrão: diretório atual)")
     p_investigate.add_argument("query", nargs="*", help="Instrução do desenvolvedor para o agente")
     p_investigate.set_defaults(func=cmd_investigate)
 

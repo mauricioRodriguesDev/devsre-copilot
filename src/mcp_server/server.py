@@ -1,7 +1,7 @@
 """Servidor MCP (Model Context Protocol) para DevSRE-Companion.
 
-Expõe ferramentas seguras de inspeção de código, execução de testes
-e análise de logs para o agente autônomo.
+Expõe ferramentas seguras de inspeção de código, execução de testes,
+leitura de arquivos e aplicação de correções (patches) para o agente autônomo.
 """
 
 import os
@@ -63,12 +63,116 @@ def git_diff(repo_path: str = ".", cached: bool = False) -> str:
 
 
 @mcp.tool()
-def run_tests(test_path: str = "", verbose: bool = True) -> str:
+def list_directory(relative_path: str = ".", repo_path: str = ".") -> str:
+    """Lista arquivos e subpastas de um diretório no repositório alvo.
+
+    Args:
+        relative_path: Caminho relativo dentro do repositório (padrão: raiz).
+        repo_path: Caminho raiz do repositório.
+    """
+    try:
+        target = (Path(repo_path) / relative_path).resolve()
+        if not target.exists():
+            return f"Diretório não encontrado: {relative_path}"
+        if not target.is_dir():
+            return f"O caminho especificado não é um diretório: {relative_path}"
+
+        entries = []
+        for item in sorted(target.iterdir()):
+            if item.name.startswith(".venv") or item.name == "__pycache__" or item.name == ".git":
+                continue
+            suffix = "/" if item.is_dir() else ""
+            entries.append(f"{item.name}{suffix}")
+
+        return "\n".join(entries) if entries else "Diretório vazio."
+    except Exception as e:
+        return f"Erro ao listar diretório: {str(e)}"
+
+
+@mcp.tool()
+def read_file(file_path: str, start_line: int = 1, line_count: int = 100, repo_path: str = ".") -> str:
+    """Lê um trecho de um arquivo de código com numeração de linhas.
+
+    Args:
+        file_path: Caminho relativo do arquivo no repositório.
+        start_line: Linha inicial a ser lida (1-indexada).
+        line_count: Quantidade de linhas a ler (padrão: 100).
+        repo_path: Caminho raiz do repositório.
+    """
+    try:
+        path = (Path(repo_path) / file_path).resolve()
+        if not path.exists():
+            return f"Arquivo não encontrado: {file_path}"
+        if path.is_dir():
+            return f"O caminho aponta para um diretório, não um arquivo: {file_path}"
+
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+
+        total_lines = len(lines)
+        start_idx = max(0, start_line - 1)
+        end_idx = min(total_lines, start_idx + line_count)
+
+        selected_lines = lines[start_idx:end_idx]
+        output = [f"--- Arquivo: {file_path} (Linhas {start_idx + 1} a {end_idx} de {total_lines}) ---"]
+
+        for idx, line in enumerate(selected_lines, start=start_idx + 1):
+            output.append(f"{idx:4d} | {line.rstrip()}")
+
+        return "\n".join(output)
+    except Exception as e:
+        return f"Erro ao ler arquivo {file_path}: {str(e)}"
+
+
+@mcp.tool()
+def apply_patch(file_path: str, search_block: str, replace_block: str, repo_path: str = ".") -> str:
+    """Aplica uma correção (patch) cirúrgica em um arquivo substituindo exatamente um trecho de código.
+
+    Args:
+        file_path: Caminho relativo do arquivo a ser modificado.
+        search_block: Trecho exato de código a ser substituído.
+        replace_block: Novo código que entrará no lugar.
+        repo_path: Caminho raiz do repositório.
+    """
+    try:
+        path = (Path(repo_path) / file_path).resolve()
+        if not path.exists():
+            return f"Arquivo não encontrado: {file_path}"
+
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        if search_block not in content:
+            return (
+                f"Erro de correspondência: o bloco de código a ser substituído não foi encontrado exatamente como especificado em {file_path}. "
+                "Use read_file para confirmar a formatação e indentação exata antes de aplicar o patch."
+            )
+
+        occurrences = content.count(search_block)
+        if occurrences > 1:
+            return (
+                f"Ambiguidade: o bloco a ser substituído aparece {occurrences} vezes no arquivo. "
+                "Forneça mais linhas de contexto ao redor para tornar a substituição unívoca."
+            )
+
+        new_content = content.replace(search_block, replace_block, 1)
+
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(new_content)
+
+        return f"Sucesso: patch aplicado com êxito em {file_path}."
+    except Exception as e:
+        return f"Erro ao aplicar patch em {file_path}: {str(e)}"
+
+
+@mcp.tool()
+def run_tests(test_path: str = "", verbose: bool = True, repo_path: str = ".") -> str:
     """Executa a suíte de testes com pytest e captura o resultado completo e eventuais tracebacks.
 
     Args:
         test_path: Caminho opcional para um arquivo ou diretório de teste (ex: 'tests/test_auth.py').
         verbose: Se True, executa com flag -v para detalhes de cada teste.
+        repo_path: Diretório onde executar os testes (padrão: '.').
     """
     try:
         cmd = [sys.executable, "-m", "pytest"]
@@ -79,6 +183,7 @@ def run_tests(test_path: str = "", verbose: bool = True) -> str:
 
         result = subprocess.run(
             cmd,
+            cwd=repo_path,
             capture_output=True,
             text=True,
             check=False,
@@ -100,15 +205,16 @@ def run_tests(test_path: str = "", verbose: bool = True) -> str:
 
 
 @mcp.tool()
-def read_application_logs(log_file: str, max_lines: int = 60) -> str:
+def read_application_logs(log_file: str, max_lines: int = 60, repo_path: str = ".") -> str:
     """Lê as últimas linhas de um arquivo de log para diagnosticar erros e stack traces.
 
     Args:
         log_file: Caminho para o arquivo de log.
         max_lines: Quantidade máxima de linhas finais a serem lidas (padrão: 60).
+        repo_path: Diretório raiz do repositório.
     """
     try:
-        path = Path(log_file)
+        path = (Path(repo_path) / log_file).resolve()
         if not path.exists():
             return f"Arquivo de log não encontrado: {log_file}"
 
