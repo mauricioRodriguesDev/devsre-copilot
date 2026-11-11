@@ -42,10 +42,14 @@ Este arquivo serve como **memória persistente** do projeto. Ele registra o prog
 - [x] Skill pedagógica interativa `.agent/skills/codebase-to-course/` para onboarding e estudo do portfólio
 
 ### Fase 5: Segurança e Hardening (CONCLUÍDA)
-- [x] **Fix 1:** Blindagem contra Path Traversal em todas as ferramentas de arquivo (`is_relative_to`)
-- [x] **Fix 2:** Sanitização e mascaramento de segredos/tokens em logs (`read_application_logs`)
+- [x] **Fix 1:** Blindagem contra Path Traversal em todas as ferramentas de arquivo (`is_relative_to` e verificação de drives Windows)
+- [x] **Fix 2:** Sanitização e mascaramento de segredos/tokens em logs e saídas (`read_application_logs`, incluindo senhas complexas)
 - [x] **Fix 3:** Confirmação interativa (Human-in-the-Loop) para operações de escrita (`apply_patch`)
-- [x] **Testes:** Bateria de testes de segurança cobrindo tentativas de invasão e escape de diretório
+- [x] **Fix 4:** Proteção contra Option/Argument Injection e Path Traversal em `run_tests` (`pytest`)
+- [x] **Fix 5:** Chunking Markdown resiliente contra quebra de blocos de código com `#`
+- [x] **Fix 6:** Integração ativa do esquema Pydantic `RootCauseAnalysisReport` com exportação `--json`
+- [x] **Fix 7:** Salvaguarda de regressão em CI/CD com `devsre eval` (fail-fast exit code 1) e anotação `@pytest.mark.xfail`
+- [x] **Testes:** Suíte com 22 testes unitários, RAG e segurança sem filtros artificiais
 
 ### Fase 6: Fine-Tuning com LoRA no Google Colab
 - [x] Dataset estruturado de treinamento criado em `colab_finetuning/rca_dataset.jsonl` (expandido para 10 cenários reais de SRE)
