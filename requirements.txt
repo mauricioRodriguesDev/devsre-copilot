@@ -1,0 +1,15 @@
+# Core MCP & AI SDKs
+mcp>=1.0.0
+google-genai>=1.0.0
+pydantic>=2.0.0
+
+# RAG & Embeddings
+chromadb>=0.5.0
+
+# Dev & SRE Tools
+gitpython>=3.1.0
+pytest>=8.0.0
+
+# Utilities & CLI Experience
+python-dotenv>=1.0.0
+rich>=13.0.0
