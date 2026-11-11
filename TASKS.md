@@ -39,6 +39,7 @@ Este arquivo serve como **memória persistente** do projeto. Ele registra o prog
 - [x] Esquemas Pydantic tipados para Root Cause Analysis em `src/agent/schemas.py`
 - [x] Empacotamento profissional com `pyproject.toml` e comando de console `devsre`
 - [x] Pipeline de CI automatizado no GitHub Actions (`.github/workflows/ci.yml`)
+- [x] Skill pedagógica interativa `.agent/skills/codebase-to-course/` para onboarding e estudo do portfólio
 
 ### Fase 5: Segurança e Hardening (CONCLUÍDA)
 - [x] **Fix 1:** Blindagem contra Path Traversal em todas as ferramentas de arquivo (`is_relative_to`)
