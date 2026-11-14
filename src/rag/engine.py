@@ -5,10 +5,13 @@ em um banco vetorial (ChromaDB), permitindo buscas semânticas de alta precisão
 """
 
 import os
+import logging
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 import chromadb
 from chromadb.config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 class KnowledgeBaseRAG:
@@ -78,7 +81,7 @@ class KnowledgeBaseRAG:
                 self.client.delete_collection(self.collection_name)
                 self.collection = self.client.get_or_create_collection(name=self.collection_name)
             except Exception as e:
-                print(f"Aviso ao reiniciar coleção do ChromaDB: {e}")
+                logger.warning(f"Aviso ao reiniciar coleção do ChromaDB: {e}")
 
         if docs_dir is None:
             default_docs = Path(__file__).resolve().parent.parent.parent / "knowledge_base"
@@ -111,7 +114,7 @@ class KnowledgeBaseRAG:
                 )
                 total_indexed += len(documents)
             except Exception as e:
-                print(f"Erro ao processar arquivo {file_path}: {e}")
+                logger.error(f"Erro ao processar arquivo {file_path}: {e}")
 
         return total_indexed
 

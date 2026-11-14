@@ -38,3 +38,22 @@ include = ["src*", "knowledge_base*"]
 
 [tool.setuptools.package-data]
 knowledge_base = ["*.md"]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.3.0",
+    "pytest-cov>=4.1.0",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]

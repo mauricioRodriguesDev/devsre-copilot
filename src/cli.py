@@ -1,9 +1,22 @@
 """Ponto de Entrada Principal (CLI) do DevSRE-Companion."""
 
+import os
 import sys
+import logging
 import argparse
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.panel import Panel
+
+# Configura logging estruturado baseado na variável LOG_LEVEL do ambiente/.env
+load_dotenv()
+_log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+_log_level = getattr(logging, _log_level_str, logging.INFO)
+logging.basicConfig(
+    level=_log_level,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
 
 console = Console()
 
