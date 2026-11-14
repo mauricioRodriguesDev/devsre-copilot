@@ -25,9 +25,14 @@ EVAL_DATASET = [
         "expected_keyword": "async with get_db_session()",
     },
     {
-        "query": "Qual o padrão exigido para mensagens de commit e formato de relatórios RCA?",
+        "query": "Qual o padrão exigido para mensagens de commit e versionamento no CI/CD?",
         "expected_source": "runbook_ci_cd_guidelines.md",
         "expected_keyword": "Conventional Commits",
+    },
+    {
+        "query": "Como migrar pacotes javax para jakarta no Spring Boot e tratar código depreciado?",
+        "expected_source": "runbook_java_modernization.md",
+        "expected_keyword": "jakarta",
     },
 ]
 

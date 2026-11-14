@@ -2,6 +2,7 @@
 
 [![CI Pipeline](https://github.com/usuario/devsre-copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/usuario/devsre-copilot/actions)
 ![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)
+![Multi-Language](https://img.shields.io/badge/Polyglot-Java%20%7C%20Node%20%7C%20Go%20%7C%20Rust%20%7C%20Python-blueviolet.svg)
 ![MCP v1](https://img.shields.io/badge/MCP-FastMCP_v1-green.svg)
 ![LLM Engine](https://img.shields.io/badge/LLM-Gemini_3.8_Flash-orange.svg)
 ![RAG Hit Rate](https://img.shields.io/badge/RAG_Evals-100%25_Hit_Rate-brightgreen.svg)
@@ -65,7 +66,7 @@ O **DevSRE-Companion** atua como um engenheiro autônomo: diante de bugs, falhas
   * `git_status`, `git_diff`: Auditoria do repositório alvo.
   * `list_directory`, `read_file`: Inspeção granular de arquivos com seleção de linhas.
   * `apply_patch`: Modificações cirúrgicas de código com validação de correspondência única.
-  * `run_tests`: Execução isolada do Pytest em qualquer repositório arbitrário.
+  * `run_tests`: Execução poliglota com **detecção automática de ecossistema**: Java (Maven `mvn`/`mvnw` e Gradle `gradle`/`gradlew`), Node.js (`npm`/`yarn`/`pnpm`/`bun`), Go (`go test`), Rust (`cargo test`), .NET (`dotnet test`) e Python (`pytest`).
   * `read_application_logs`: Leitura de arquivos de log com sanitização em tempo real.
 
 ### 2. Advanced RAG & Avaliações Quantitativas (Evals)
@@ -114,17 +115,19 @@ devsre-copilot/
 ├── knowledge_base/                   # Runbooks técnicos indexados no RAG
 │   ├── runbook_auth_jwt.md
 │   ├── runbook_ci_cd_guidelines.md
-│   └── runbook_database_connection.md
+│   ├── runbook_database_connection.md
+│   └── runbook_java_modernization.md # Guia de modernização e resolução de depreciações
 ├── src/
 │   ├── agent/                        # AI Harness, ReAct loop e schemas Pydantic
 │   ├── evals/                        # Avaliação quantitativa de precisão RAG
-│   ├── mcp_server/                   # Servidor FastMCP e ferramentas de código
+│   ├── mcp_server/                   # Servidor FastMCP e ferramentas poliglotas
 │   ├── rag/                          # Motor vetorial ChromaDB e chunking semântico
 │   ├── sample_app/                   # Microsserviço de teste com bug intencional
 │   └── cli.py                        # Ponto de entrada da CLI devsre
 ├── tests/
 │   ├── test_auth.py                  # Teste de contrato da aplicação de exemplo
-│   └── test_tools.py                 # 14 testes unitários e de segurança das ferramentas
+│   ├── test_rag.py                   # Testes de integridade do chunking e busca vetorial
+│   └── test_tools.py                 # Testes unitários, de segurança e detecção poliglota
 ├── pyproject.toml                    # Configuração de empacotamento PEP 621
 ├── requirements.txt                  # Dependências fixadas
 ├── TASKS.md                          # Painel persistente de controle de tarefas
@@ -185,9 +188,9 @@ devsre eval
 devsre rag-index
 ```
 
-### 4. Executar os Testes Unitários e de Segurança
+### 4. Executar a Suíte Completa de Testes
 ```bash
-pytest tests/test_tools.py -v
+pytest -v
 ```
 
 ---
@@ -198,9 +201,10 @@ pytest tests/test_tools.py -v
 | :--- | :--- | :--- |
 | **RAG Knowledge Engine** | Source Hit Rate @ 2 | **100.0%** |
 | **RAG Knowledge Engine** | Keyword Hit Rate | **100.0%** |
-| **Security Guardrails** | Bloqueio de Path Traversal | **100% de Aprovação (5/5 vetores bloqueados)** |
-| **Security Guardrails** | Redação de Segredos em Logs | **100% dos tokens mascarados** |
-| **MCP Tool Suite** | Cobertura de Testes Unitários | **14/14 testes aprovados** |
+| **Security Guardrails** | Bloqueio de Path Traversal & Dotfiles | **100% de Aprovação (.env, .git, ../ bloqueados)** |
+| **Security Guardrails** | Redação de Segredos em Logs | **100% dos tokens mascarados (Google AQ/AIza, JWT, Bearer)** |
+| **Polyglot Test Runner** | Detecção Multi-Linguagem | **Java (Maven/Gradle), Node, Go, Rust, .NET e Python** |
+| **Suíte de Testes** | Cobertura Unitária e de Segurança | **31 aprovados, 1 xfailed (laboratório de incidente)** |
 
 ---
 

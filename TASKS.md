@@ -23,16 +23,18 @@ Este arquivo serve como **memória persistente** do projeto. Ele registra o prog
 ### Fase 2: Servidor MCP e Ferramentas de Código
 - [x] Implementação do servidor MCP oficial em `src/mcp_server/server.py` (`FastMCP`)
 - [x] Ferramentas de inspeção de repositório (`git_status`, `git_diff`)
-- [x] Ferramentas de execução de testes (`run_tests` com suporte a `repo_path`)
-- [x] Ferramentas de exploração de código (`list_directory`, `read_file` com linhas)
-- [x] Ferramentas de modificação cirúrgica (`apply_patch` com verificação de unicidade)
+- [x] **Motor Poliglota Multi-Linguagem:** Detecção automática de ecossistemas em `run_tests` (Java Maven/Gradle, Node.js, Go, Rust, .NET e Python)
+- [x] Filtro de diretórios limpo em `list_directory` (ignora `node_modules`, `target`, `.gradle`, `dist`, `bin`, `obj`)
+- [x] Ferramentas de exploração de código (`read_file` com numeração de linhas e limite de 5MB)
+- [x] Ferramentas de modificação cirúrgica (`apply_patch` com verificação de unicidade e gate Human-in-the-Loop)
 - [x] Testes unitários para todas as ferramentas MCP em `tests/test_tools.py`
 
 ### Fase 3: RAG Knowledge Engine & Evals
 - [x] Motor de busca vetorial com ChromaDB persistente em `src/rag/engine.py`
-- [x] Chunking semântico baseado em cabeçalhos Markdown
-- [x] Criação dos Runbooks corporativos em `knowledge_base/` (`runbook_auth_jwt.md`, `runbook_database_connection.md`, `runbook_ci_cd_guidelines.md`)
-- [x] Suíte de avaliação quantitativa automatizada em `src/evals/eval_rag.py`
+- [x] Chunking semântico baseado em cabeçalhos Markdown com preservação de blocos de código
+- [x] Runbooks corporativos em `knowledge_base/` (`runbook_auth_jwt.md`, `runbook_database_connection.md`, `runbook_ci_cd_guidelines.md`)
+- [x] **Runbook de Modernização Java:** Criado `knowledge_base/runbook_java_modernization.md` (Java 17/21, javax -> jakarta, classes legadas e depreciações)
+- [x] Suíte de avaliação quantitativa automatizada em `src/evals/eval_rag.py` com 100% de acerto em 4 cenários chave
 
 ### Fase 4: AI Harness, CLI e CI/CD
 - [x] Orquestrador ReAct com Auto-Healing e truncagem de contexto em `src/agent/harness.py`
