@@ -64,3 +64,13 @@ Este arquivo serve como **memória persistente** do projeto. Ele registra o prog
 - [x] Atualização final do `README.md` com badges de CI, métricas, guardrails e diagrama arquitetural
 - [x] Criação do arquivo de licença de código aberto `LICENSE` (MIT)
 - [ ] Conexão e envio para repositório remoto no GitHub (`git push -u origin master`)
+
+### Fase 8: Auditoria Técnica & Hardening Avançado (CONCLUÍDA)
+- [x] **Fix P0:** Validação rigorosa de `repo_path` em `git_status`, `git_diff` e `run_tests` (`_resolve_safe_repo_dir` bloqueando raízes de sistema e pastas sensíveis)
+- [x] **Fix P0/P2:** Expansão de `sanitize_sensitive_data` com detecção de credenciais AWS (`AKIA...`), GitHub (`ghp_...`), Stripe (`sk_live_...`) e proteção contra re-redação via negative lookahead
+- [x] **Fix P1:** Escrita atômica em `apply_patch` via arquivo temporário e `replace()` do sistema de arquivos para evitar corrupção em falhas de I/O
+- [x] **Fix P1:** Reuso centralizado do `genai.Client` no `DevSREHarness` e mecanismo de retry com backoff exponencial (`_call_with_retry`)
+- [x] **Fix P1:** `load_dotenv()` movido do escopo global de módulo para instanciação sob demanda
+- [x] **Fix P2 (PERF-01):** Otimização de inicialização RAG — bypass de reindexação do ChromaDB se a base já estiver populada, reduzindo tempo de startup de 38s para 1.3s
+- [x] **Fix P2:** Remoção da dependência não utilizada `gitpython` do `pyproject.toml` e `requirements.txt`
+- [x] **Fix P1 (TEST-01 e TEST-02):** Criação das suítes de testes automatizados `tests/test_harness.py` e `tests/test_cli.py`, expandindo a suíte de 31 para 46 testes aprovados (1 xfailed lab)

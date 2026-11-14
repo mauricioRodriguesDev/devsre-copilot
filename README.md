@@ -202,9 +202,9 @@ pytest -v
 | **RAG Knowledge Engine** | Source Hit Rate @ 2 | **100.0%** |
 | **RAG Knowledge Engine** | Keyword Hit Rate | **100.0%** |
 | **Security Guardrails** | Bloqueio de Path Traversal & Dotfiles | **100% de Aprovação (.env, .git, ../ bloqueados)** |
-| **Security Guardrails** | Redação de Segredos em Logs | **100% dos tokens mascarados (Google AQ/AIza, JWT, Bearer)** |
+| **Security Guardrails** | Redação de Segredos em Logs | **100% dos tokens mascarados (Google AQ/AIza, JWT, Bearer, AWS, GitHub, Stripe)** |
 | **Polyglot Test Runner** | Detecção Multi-Linguagem | **Java (Maven/Gradle), Node, Go, Rust, .NET e Python** |
-| **Suíte de Testes** | Cobertura Unitária e de Segurança | **31 aprovados, 1 xfailed (laboratório de incidente)** |
+| **Suíte de Testes** | Cobertura Unitária, Harness, CLI e Segurança | **46 aprovados, 1 xfailed (laboratório de incidente)** |
 
 ---
 
