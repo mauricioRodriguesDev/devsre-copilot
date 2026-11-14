@@ -70,6 +70,11 @@ IGNORED_DIR_NAMES = {
     "vendor",
 }
 
+# Configurações de timeouts com defaults seguros e suporte a variáveis de ambiente
+DEFAULT_GIT_STATUS_TIMEOUT = int(os.getenv("DEVSRE_GIT_STATUS_TIMEOUT", "10"))
+DEFAULT_GIT_DIFF_TIMEOUT = int(os.getenv("DEVSRE_GIT_DIFF_TIMEOUT", "15"))
+DEFAULT_TEST_TIMEOUT = int(os.getenv("DEVSRE_TEST_TIMEOUT", "60"))
+
 
 def sanitize_sensitive_data(text: str) -> str:
     """Mascara credenciais sensíveis (chaves de API, senhas de banco, tokens JWT e Bearer).
@@ -110,15 +115,62 @@ def sanitize_sensitive_data(text: str) -> str:
         flags=re.IGNORECASE,
     )
 
-    # 5. Mascara pares chave/valor de credenciais comuns (incluindo caracteres especiais)
+    # 5. Mascara credenciais da AWS (Access Key ID e Secret Key)
     text = re.sub(
-        r"((?:api[_-]?key|secret|token|password|passwd|auth_token)\s*[:=]\s*['\"]?)([^\s'\",;\r\n]{6,})(['\"]?)",
+        r"\b(?:A3T[A-Z0-9]|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16})\b",
+        "[REDACTED_AWS_KEY]",
+        text,
+    )
+
+    # 6. Mascara tokens de acesso pessoal do GitHub (ghp, gho, ghu, ghs, ghr)
+    text = re.sub(
+        r"\b(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,}\b",
+        "[REDACTED_GITHUB_TOKEN]",
+        text,
+    )
+
+    # 7. Mascara chaves de API Stripe (sk_live, sk_test, rk_live, rk_test)
+    text = re.sub(
+        r"\b(?:sk|rk)_(?:live|test)_[0-9a-zA-Z]{24,}\b",
+        "[REDACTED_STRIPE_KEY]",
+        text,
+    )
+
+    # 8. Mascara pares chave/valor de credenciais comuns (ignorando se já foi redigido)
+    text = re.sub(
+        r"((?:api[_-]?key|secret|token|password|passwd|auth_token)\s*[:=]\s*['\"]?)(?!\[REDACTED_)([^\s'\",;\r\n]{6,})(['\"]?)",
         r"\1[REDACTED_SECRET]\3",
         text,
         flags=re.IGNORECASE,
     )
 
     return text
+
+
+def _resolve_safe_repo_dir(repo_path: str = ".") -> Tuple[Optional[Path], Optional[str]]:
+    """Valida se o diretório do repositório é seguro para inspeção e execução de comandos.
+
+    Bloqueia diretórios inexistentes, raízes de sistema de arquivos e pastas sensíveis protegidas.
+    """
+    try:
+        base = Path(repo_path).resolve()
+
+        if not base.exists():
+            return None, f"Diretório do repositório não encontrado: {repo_path}"
+        if not base.is_dir():
+            return None, f"O caminho do repositório não aponta para um diretório: {repo_path}"
+
+        # 1. Rejeita raízes absolutas do sistema de arquivos (ex: C:\, \, /)
+        if base == Path(base.anchor) or str(base) == base.drive + "\\":
+            return None, f"Segurança: não é permitido executar operações na raiz do sistema ('{repo_path}')."
+
+        # 2. Rejeita pastas sensíveis protegidas
+        if base.name.lower() in BLOCKED_SENSITIVE_DIRS:
+            return None, f"Segurança: acesso ao diretório protegido/sensível '{base.name}' não é permitido."
+
+        return base, None
+    except Exception as e:
+        return None, f"Erro ao validar diretório do repositório: {str(e)}"
 
 
 def _resolve_safe_path(file_path: str, repo_path: str = ".") -> Tuple[Optional[Path], Optional[str]]:
@@ -129,7 +181,9 @@ def _resolve_safe_path(file_path: str, repo_path: str = ".") -> Tuple[Optional[P
     e arquivos/diretórios sensíveis (.env, .git/, chaves privadas).
     """
     try:
-        base = Path(repo_path).resolve()
+        base, err = _resolve_safe_repo_dir(repo_path)
+        if err:
+            return None, err
         clean = Path(file_path)
 
         # 1. Rejeita caminhos absolutos ou com unidade de disco (ex: C:/Windows/..., C:foo, /etc/passwd)
@@ -161,19 +215,23 @@ def _resolve_safe_path(file_path: str, repo_path: str = ".") -> Tuple[Optional[P
 def git_status(repo_path: str = ".") -> str:
     """Retorna o status atual do repositório Git (arquivos modificados, staged e branch)."""
     try:
-        base = Path(repo_path).resolve()
+        base, err = _resolve_safe_repo_dir(repo_path)
+        if err:
+            return err
         result = subprocess.run(
             ["git", "status", "--short", "--branch"],
             cwd=str(base),
             capture_output=True,
             text=True,
             check=False,
-            timeout=10,
+            timeout=DEFAULT_GIT_STATUS_TIMEOUT,
         )
         if result.returncode != 0:
             return f"Erro ao executar git status: {result.stderr.strip()}"
         output = result.stdout.strip()
         return output if output else "Repositório limpo, nenhuma alteração pendente."
+    except subprocess.TimeoutExpired:
+        return f"Tempo limite excedido ao executar git status (timeout de {DEFAULT_GIT_STATUS_TIMEOUT}s)."
     except Exception as e:
         return f"Falha ao executar git status: {str(e)}"
 
@@ -187,7 +245,9 @@ def git_diff(repo_path: str = ".", cached: bool = False) -> str:
         cached: Se True, mostra o diff dos arquivos em stage (git diff --cached).
     """
     try:
-        base = Path(repo_path).resolve()
+        base, err = _resolve_safe_repo_dir(repo_path)
+        if err:
+            return err
         cmd = ["git", "diff"]
         if cached:
             cmd.append("--cached")
@@ -197,12 +257,14 @@ def git_diff(repo_path: str = ".", cached: bool = False) -> str:
             capture_output=True,
             text=True,
             check=False,
-            timeout=15,
+            timeout=DEFAULT_GIT_DIFF_TIMEOUT,
         )
         if result.returncode != 0:
             return f"Erro ao executar git diff: {result.stderr.strip()}"
         output = result.stdout.strip()
         return output if output else "Nenhuma diferença encontrada."
+    except subprocess.TimeoutExpired:
+        return f"Tempo limite excedido ao executar git diff (timeout de {DEFAULT_GIT_DIFF_TIMEOUT}s)."
     except Exception as e:
         return f"Falha ao executar git diff: {str(e)}"
 
@@ -349,8 +411,16 @@ def apply_patch(
 
         new_content = content.replace(search_block, replace_block, 1)
 
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(new_content)
+        # Escrita atômica via arquivo temporário seguro para evitar corrupção em caso de falha de I/O
+        temp_file = path.with_name(f".{path.name}.tmp_patch")
+        try:
+            with open(temp_file, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            temp_file.replace(path)
+        except Exception:
+            if temp_file.exists():
+                temp_file.unlink(missing_ok=True)
+            raise
 
         return f"Sucesso: patch aplicado com êxito em {file_path}."
     except Exception as e:
@@ -465,7 +535,7 @@ def detect_project_ecosystem(
 def run_tests(test_path: str = "", verbose: bool = True, repo_path: str = ".") -> str:
     """Executa a suíte de testes com detecção automática de ecossistema (Java Maven/Gradle, Node.js, Go, Rust, .NET, Python).
 
-    Protegido contra Argument Injection (flags como -o, -c) e Path Traversal em test_path.
+    Protegido contra Argument Injection (flags como -o, -c) e Path Traversal em test_path e repo_path.
 
     Args:
         test_path: Caminho ou filtro opcional de teste (ex: 'tests/test_auth.py', 'com.empresa.service.AuthTest').
@@ -473,7 +543,9 @@ def run_tests(test_path: str = "", verbose: bool = True, repo_path: str = ".") -
         repo_path: Diretório onde executar os testes (padrão: '.').
     """
     try:
-        base = Path(repo_path).resolve()
+        base, err = _resolve_safe_repo_dir(repo_path)
+        if err:
+            return err
 
         clean_test = test_path.strip()
         if clean_test:
@@ -500,7 +572,7 @@ def run_tests(test_path: str = "", verbose: bool = True, repo_path: str = ".") -
             capture_output=True,
             text=True,
             check=False,
-            timeout=60,
+            timeout=DEFAULT_TEST_TIMEOUT,
         )
         output = result.stdout.strip()
         errors = result.stderr.strip()
@@ -512,7 +584,7 @@ def run_tests(test_path: str = "", verbose: bool = True, repo_path: str = ".") -
             combined += f"\n[STDERR]:\n{sanitize_sensitive_data(errors)}"
         return combined
     except subprocess.TimeoutExpired:
-        return "Tempo limite excedido ao executar os testes (timeout de 60s)."
+        return f"Tempo limite excedido ao executar os testes (timeout de {DEFAULT_TEST_TIMEOUT}s)."
     except Exception as e:
         return f"Falha ao executar suíte de testes: {str(e)}"
 

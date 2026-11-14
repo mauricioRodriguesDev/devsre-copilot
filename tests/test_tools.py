@@ -3,6 +3,8 @@
 import tempfile
 from pathlib import Path
 from src.mcp_server.server import (
+    git_status,
+    git_diff,
     list_directory,
     read_file,
     apply_patch,
@@ -381,5 +383,46 @@ def test_detect_project_ecosystem_python_default():
         assert "pytest" in cmd
 
 
+# --- NOVOS TESTES DE HARDENING E SEGURANÇA EXPANDIDA ---
+
+def test_sanitize_sensitive_data_masks_aws_github_stripe():
+    """Valida redação de credenciais de nuvem e terceiros (AWS, GitHub, Stripe)."""
+    raw = (
+        "AWS credentials: AKIAIOSFODNN7EXAMPLE\n"
+        "GitHub token: ghp_1234567890abcdefghijklmnopqrstuvwxyzAB\n"
+        f"Stripe key: {'sk_test_' + '51A2B3C4D5E6F7G8H9I0J1K2'}\n"
+    )
+    sanitized = sanitize_sensitive_data(raw)
+    assert "AKIAIOSFODNN7EXAMPLE" not in sanitized
+    assert "[REDACTED_AWS_KEY]" in sanitized
+    assert "ghp_1234567890abcdefghijklmnopqrstuvwxyzAB" not in sanitized
+    assert "[REDACTED_GITHUB_TOKEN]" in sanitized
+    assert ("sk_test_" + "51A2B3C4D5E6F7G8H9I0J1K2") not in sanitized
+    assert "[REDACTED_STRIPE_KEY]" in sanitized
 
 
+def test_git_status_and_diff_block_invalid_repo_path():
+    """Valida que git_status e git_diff rejeitem repositórios inexistentes ou protegidos."""
+    res_status = git_status(repo_path="diretorio_inexistente_xyz_123")
+    assert "não encontrado" in res_status
+
+    res_diff = git_diff(repo_path="diretorio_inexistente_xyz_123")
+    assert "não encontrado" in res_diff
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        protected_dir = Path(tmpdir) / ".git"
+        protected_dir.mkdir()
+        res_blocked = git_status(repo_path=str(protected_dir))
+        assert "Segurança:" in res_blocked
+
+
+def test_run_tests_blocks_invalid_repo_path():
+    """Valida que run_tests rejeite diretórios inexistentes ou sensíveis."""
+    res = run_tests(repo_path="caminho_inexistente_456")
+    assert "não encontrado" in res
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        sensitive = Path(tmpdir) / ".venv"
+        sensitive.mkdir()
+        res_sens = run_tests(repo_path=str(sensitive))
+        assert "Segurança:" in res_sens
