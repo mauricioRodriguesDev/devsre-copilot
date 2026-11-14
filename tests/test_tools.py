@@ -9,6 +9,7 @@ from src.mcp_server.server import (
     run_tests,
     read_application_logs,
     sanitize_sensitive_data,
+    detect_project_ecosystem,
 )
 
 
@@ -285,6 +286,100 @@ def test_read_file_blocks_oversized_files():
 
         result = read_file(file_path="huge_data.bin", repo_path=tmpdir)
         assert "Segurança: arquivo excede o limite máximo permitido de 5MB" in result
+
+
+# --- TESTES DE DETECÇÃO MULTI-LINGUAGEM (POLYGLOT ENGINE) ---
+
+def test_list_directory_ignores_multilanguage_build_folders():
+    """Garante que pastas de build/dependências de Java, Node e Rust sejam ignoradas na listagem."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        base = Path(tmpdir)
+        (base / "src").mkdir()
+        (base / "node_modules").mkdir()
+        (base / "target").mkdir()
+        (base / "dist").mkdir()
+        (base / "App.java").touch()
+
+        output = list_directory(repo_path=tmpdir)
+        assert "src/" in output
+        assert "App.java" in output
+        assert "node_modules" not in output
+        assert "target" not in output
+        assert "dist" not in output
+
+
+def test_detect_project_ecosystem_maven():
+    """Valida detecção de projetos Java baseados em Maven (pom.xml)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        base = Path(tmpdir)
+        (base / "pom.xml").write_text("<project></project>", encoding="utf-8")
+        (base / "mvnw.cmd").touch()
+
+        name, cmd, err = detect_project_ecosystem(base, clean_test="com.empresa.AuthTest")
+        assert name == "Maven (Java)"
+        assert err is None
+        assert "test" in cmd
+        assert "-Dtest=com.empresa.AuthTest" in cmd
+
+
+def test_detect_project_ecosystem_gradle():
+    """Valida detecção de projetos Java/Kotlin baseados em Gradle (build.gradle)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        base = Path(tmpdir)
+        (base / "build.gradle").write_text("plugins {}", encoding="utf-8")
+        (base / "gradlew.bat").touch()
+
+        name, cmd, err = detect_project_ecosystem(base, clean_test="AuthTest")
+        assert name == "Gradle (Java/Kotlin)"
+        assert err is None
+        assert "test" in cmd
+        assert "--tests" in cmd
+        assert "AuthTest" in cmd
+
+
+def test_detect_project_ecosystem_node():
+    """Valida detecção de projetos JavaScript/TypeScript (package.json)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        base = Path(tmpdir)
+        (base / "package.json").write_text('{"name": "app"}', encoding="utf-8")
+
+        name, cmd, err = detect_project_ecosystem(base, clean_test="auth.test.ts")
+        assert "Node.js" in name
+        if cmd is not None:
+            assert "test" in cmd
+            assert "auth.test.ts" in cmd
+
+
+def test_detect_project_ecosystem_go():
+    """Valida detecção de projetos Go (go.mod)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        base = Path(tmpdir)
+        (base / "go.mod").write_text("module meuapp\n", encoding="utf-8")
+
+        name, cmd, err = detect_project_ecosystem(base)
+        assert name == "Go"
+
+
+def test_detect_project_ecosystem_rust():
+    """Valida detecção de projetos Rust (Cargo.toml)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        base = Path(tmpdir)
+        (base / "Cargo.toml").write_text("[package]\nname='meuapp'\n", encoding="utf-8")
+
+        name, cmd, err = detect_project_ecosystem(base)
+        assert name == "Rust (Cargo)"
+
+
+def test_detect_project_ecosystem_python_default():
+    """Valida detecção padrão para projetos Python."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        base = Path(tmpdir)
+        (base / "app.py").touch()
+
+        name, cmd, err = detect_project_ecosystem(base)
+        assert name == "Python (pytest)"
+        assert "pytest" in cmd
+
 
 
 

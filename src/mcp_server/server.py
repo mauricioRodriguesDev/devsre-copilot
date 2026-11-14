@@ -9,9 +9,10 @@ e controle de escrita com Human-in-the-Loop (OWASP LLM06).
 import os
 import re
 import sys
+import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 from mcp.server.fastmcp import FastMCP
 
 # Inicializa o servidor FastMCP
@@ -45,6 +46,28 @@ BLOCKED_SENSITIVE_DIRS = {
     "env",
     ".vscode",
     ".idea",
+}
+
+# Pastas de build/dependências comuns ignoradas na listagem de diretórios para não sobrecarregar contexto
+IGNORED_DIR_NAMES = {
+    "__pycache__",
+    ".pytest_cache",
+    ".venv",
+    "venv",
+    "env",
+    ".git",
+    ".idea",
+    ".vscode",
+    "node_modules",
+    ".next",
+    ".nuxt",
+    "dist",
+    "build",
+    "target",
+    ".gradle",
+    "bin",
+    "obj",
+    "vendor",
 }
 
 
@@ -204,7 +227,7 @@ def list_directory(relative_path: str = ".", repo_path: str = ".") -> str:
 
         entries = []
         for item in sorted(target.iterdir()):
-            if item.name.startswith(".venv") or item.name == "__pycache__" or item.name == ".git":
+            if item.name in IGNORED_DIR_NAMES or item.name.startswith(".venv"):
                 continue
             suffix = "/" if item.is_dir() else ""
             entries.append(f"{item.name}{suffix}")
@@ -334,22 +357,123 @@ def apply_patch(
         return f"Erro ao aplicar patch em {file_path}: {str(e)}"
 
 
+def detect_project_ecosystem(
+    repo_path: Path, clean_test: str = "", verbose: bool = True
+) -> Tuple[str, Optional[List[str]], Optional[str]]:
+    """Detecta automaticamente o ecossistema do projeto (Java Maven/Gradle, Node.js, Go, Rust, .NET, Python).
+
+    Retorna:
+        (nome_do_ecossistema, comando_em_lista, mensagem_de_erro_se_houver)
+    """
+    is_windows = sys.platform == "win32"
+
+    # 1. Java / Kotlin (Apache Maven)
+    if (repo_path / "pom.xml").exists():
+        wrapper = repo_path / ("mvnw.cmd" if is_windows else "mvnw")
+        mvn_bin = str(wrapper) if wrapper.exists() else shutil.which("mvn")
+        if not mvn_bin:
+            return (
+                "Maven (Java)",
+                None,
+                "Ecossistema detectado: Maven (Java), mas o executável 'mvn' ou wrapper 'mvnw' "
+                "não foi encontrado no PATH. Instale o Apache Maven ou adicione o wrapper mvnw no repositório.",
+            )
+        cmd = [mvn_bin, "test"]
+        if clean_test:
+            cmd.append(f"-Dtest={clean_test}")
+        return "Maven (Java)", cmd, None
+
+    # 2. Java / Kotlin (Gradle)
+    if (repo_path / "build.gradle").exists() or (repo_path / "build.gradle.kts").exists():
+        wrapper = repo_path / ("gradlew.bat" if is_windows else "gradlew")
+        gradle_bin = str(wrapper) if wrapper.exists() else shutil.which("gradle")
+        if not gradle_bin:
+            return (
+                "Gradle (Java/Kotlin)",
+                None,
+                "Ecossistema detectado: Gradle (Java/Kotlin), mas o executável 'gradle' ou wrapper 'gradlew' "
+                "não foi encontrado no PATH. Instale o Gradle ou adicione o wrapper gradlew no repositório.",
+            )
+        cmd = [gradle_bin, "test"]
+        if clean_test:
+            cmd.extend(["--tests", clean_test])
+        return "Gradle (Java/Kotlin)", cmd, None
+
+    # 3. JavaScript / TypeScript (Node.js)
+    if (repo_path / "package.json").exists():
+        pm = "npm"
+        if (repo_path / "pnpm-lock.yaml").exists() and shutil.which("pnpm"):
+            pm = "pnpm"
+        elif (repo_path / "yarn.lock").exists() and shutil.which("yarn"):
+            pm = "yarn"
+        elif (repo_path / "bun.lockb").exists() and shutil.which("bun"):
+            pm = "bun"
+
+        pm_bin = shutil.which(pm)
+        if not pm_bin:
+            return (
+                "Node.js",
+                None,
+                f"Ecossistema detectado: Node.js, mas o gerenciador '{pm}' não foi encontrado no PATH.",
+            )
+        cmd = [pm_bin, "test"]
+        if clean_test:
+            cmd.extend(["--", clean_test])
+        return f"Node.js ({pm})", cmd, None
+
+    # 4. Go
+    if (repo_path / "go.mod").exists():
+        go_bin = shutil.which("go")
+        if not go_bin:
+            return "Go", None, "Ecossistema detectado: Go, mas o executável 'go' não foi encontrado no PATH."
+        cmd = [go_bin, "test"]
+        if verbose:
+            cmd.append("-v")
+        cmd.append(f"./{clean_test}/..." if clean_test else "./...")
+        return "Go", cmd, None
+
+    # 5. Rust (Cargo)
+    if (repo_path / "Cargo.toml").exists():
+        cargo_bin = shutil.which("cargo")
+        if not cargo_bin:
+            return "Rust (Cargo)", None, "Ecossistema detectado: Rust (Cargo), mas o executável 'cargo' não foi encontrado no PATH."
+        cmd = [cargo_bin, "test"]
+        if clean_test:
+            cmd.append(clean_test)
+        return "Rust (Cargo)", cmd, None
+
+    # 6. .NET / C#
+    if list(repo_path.glob("*.sln")) or list(repo_path.glob("*.csproj")):
+        dotnet_bin = shutil.which("dotnet")
+        if not dotnet_bin:
+            return ".NET", None, "Ecossistema detectado: .NET, mas o executável 'dotnet' não foi encontrado no PATH."
+        cmd = [dotnet_bin, "test"]
+        if clean_test:
+            cmd.extend(["--filter", clean_test])
+        return ".NET", cmd, None
+
+    # 7. Python (Padrão)
+    cmd = [sys.executable, "-m", "pytest"]
+    if verbose:
+        cmd.append("-v")
+    if clean_test:
+        cmd.append(clean_test)
+    return "Python (pytest)", cmd, None
+
+
 @mcp.tool()
 def run_tests(test_path: str = "", verbose: bool = True, repo_path: str = ".") -> str:
-    """Executa a suíte de testes com pytest e captura o resultado completo e eventuais tracebacks.
+    """Executa a suíte de testes com detecção automática de ecossistema (Java Maven/Gradle, Node.js, Go, Rust, .NET, Python).
 
     Protegido contra Argument Injection (flags como -o, -c) e Path Traversal em test_path.
 
     Args:
-        test_path: Caminho opcional para um arquivo ou diretório de teste (ex: 'tests/test_auth.py').
-        verbose: Se True, executa com flag -v para detalhes de cada teste.
+        test_path: Caminho ou filtro opcional de teste (ex: 'tests/test_auth.py', 'com.empresa.service.AuthTest').
+        verbose: Se True, executa com flag de verbosidade onde aplicável.
         repo_path: Diretório onde executar os testes (padrão: '.').
     """
     try:
         base = Path(repo_path).resolve()
-        cmd = [sys.executable, "-m", "pytest"]
-        if verbose:
-            cmd.append("-v")
 
         clean_test = test_path.strip()
         if clean_test:
@@ -357,13 +481,18 @@ def run_tests(test_path: str = "", verbose: bool = True, repo_path: str = ".") -
             if clean_test.startswith("-"):
                 return f"Segurança: opções e flags de linha de comando não são permitidas em test_path ('{test_path}')."
 
-            # 2. Proteção contra Path Traversal em test_path
-            path_obj, err = _resolve_safe_path(clean_test, repo_path)
-            if err:
-                return err
-            if not path_obj.exists():
-                return f"Arquivo ou diretório de testes não encontrado: {clean_test}"
-            cmd.append(clean_test)
+            # 2. Se for um arquivo existente com caminho relativo, valida se não é traversal
+            if ("/" in clean_test or "\\" in clean_test) or (base / clean_test).exists():
+                path_obj, err = _resolve_safe_path(clean_test, repo_path)
+                if err:
+                    return err
+                if not path_obj.exists():
+                    return f"Arquivo ou diretório de testes não encontrado: {clean_test}"
+
+        # 3. Detecta ecossistema e monta o comando de testes apropriado
+        ecosystem_name, cmd, err = detect_project_ecosystem(base, clean_test, verbose)
+        if err:
+            return f"[{ecosystem_name}] {err}"
 
         result = subprocess.run(
             cmd,
@@ -371,21 +500,21 @@ def run_tests(test_path: str = "", verbose: bool = True, repo_path: str = ".") -
             capture_output=True,
             text=True,
             check=False,
-            timeout=45,
+            timeout=60,
         )
         output = result.stdout.strip()
         errors = result.stderr.strip()
 
-        combined = f"--- RESULTADO DOS TESTES (Exit code: {result.returncode}) ---\n"
+        combined = f"--- RESULTADO DOS TESTES [{ecosystem_name}] (Exit code: {result.returncode}) ---\n"
         if output:
             combined += f"\n[STDOUT]:\n{sanitize_sensitive_data(output)}"
         if errors:
             combined += f"\n[STDERR]:\n{sanitize_sensitive_data(errors)}"
         return combined
     except subprocess.TimeoutExpired:
-        return "Tempo limite excedido ao executar os testes (timeout de 45s)."
+        return "Tempo limite excedido ao executar os testes (timeout de 60s)."
     except Exception as e:
-        return f"Falha ao executar pytest: {str(e)}"
+        return f"Falha ao executar suíte de testes: {str(e)}"
 
 
 @mcp.tool()
