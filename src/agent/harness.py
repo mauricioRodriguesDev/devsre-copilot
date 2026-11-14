@@ -6,6 +6,7 @@ auto-recuperação de erros de ferramentas e geração de relatório estruturado
 
 import os
 import json
+import time
 import inspect
 from pathlib import Path
 from typing import List, Dict, Any, Optional
@@ -26,9 +27,28 @@ from src.mcp_server.server import (
 from src.rag.engine import KnowledgeBaseRAG
 from src.agent.schemas import RootCauseAnalysisReport
 
-# Carrega variáveis de ambiente do .env
-load_dotenv()
 console = Console()
+MAX_TOOL_OUTPUT_LENGTH = 5000
+
+
+def _call_with_retry(fn, max_retries: int = 3, initial_delay: float = 1.0):
+    """Executa uma função com retry e backoff exponencial para falhas de rede transitórias."""
+    delay = initial_delay
+    last_exc = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            return fn()
+        except Exception as exc:
+            last_exc = exc
+            err_msg = str(exc).lower()
+            # Erros de autenticação, permissão e parâmetros inválidos devem falhar sem retry inútil
+            if any(term in err_msg for term in ["api_key_invalid", "permission_denied", "invalid_argument", "unauthenticated", "401", "403"]):
+                raise exc
+            if attempt == max_retries:
+                raise exc
+            time.sleep(delay)
+            delay *= 2
+    raise last_exc
 
 
 class DevSREHarness:
@@ -41,15 +61,20 @@ class DevSREHarness:
         target_repo: str = ".",
         auto_approve: bool = False,
     ):
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
+        # Carrega variáveis de ambiente sob demanda na instanciação do harness
+        load_dotenv()
+
+        self.api_key = api_key if api_key is not None else os.getenv("GEMINI_API_KEY")
         self.model_name = model_name
         self.target_repo = str(Path(target_repo).resolve())
         self.auto_approve = auto_approve
         self.last_rca_report: Optional[RootCauseAnalysisReport] = None
+        self._genai_client = None
         self.rag = KnowledgeBaseRAG()
 
-        # Garante que a base de conhecimento esteja indexada
-        self.rag.index_directory()
+        # Garante que a base de conhecimento esteja indexada apenas se a coleção estiver vazia
+        if self.rag.collection.count() == 0:
+            self.rag.index_directory()
 
         # Catálogo de ferramentas disponíveis para o agente
         self.tools_map = {
@@ -62,6 +87,15 @@ class DevSREHarness:
             "read_application_logs": read_application_logs,
             "search_runbooks": self._search_docs_tool,
         }
+
+    def _get_genai_client(self):
+        """Inicializa e reutiliza a instância do cliente Google GenAI."""
+        if not self.api_key or self.api_key == "seu_gemini_api_key_aqui":
+            return None
+        if self._genai_client is None:
+            from google import genai
+            self._genai_client = genai.Client(api_key=self.api_key)
+        return self._genai_client
 
     def _build_gemini_tools(self) -> List[Any]:
         """Constrói wrappers tipados das ferramentas para integração com o Google GenAI SDK."""
@@ -144,10 +178,13 @@ class DevSREHarness:
                 if "auto_approve" not in arguments:
                     arguments["auto_approve"] = self.auto_approve
 
-            # Limita tamanho de saída para proteger a janela de contexto
+            # Limita tamanho de saída para proteger a janela de contexto de forma limpa
             result = str(fn(**arguments))
-            if len(result) > 5000:
-                result = result[:5000] + "\n... [Saída truncada pelo Harness para preservar contexto]"
+            if len(result) > MAX_TOOL_OUTPUT_LENGTH:
+                cut_pos = result.rfind("\n", 0, MAX_TOOL_OUTPUT_LENGTH)
+                if cut_pos == -1 or cut_pos < MAX_TOOL_OUTPUT_LENGTH // 2:
+                    cut_pos = MAX_TOOL_OUTPUT_LENGTH
+                result = result[:cut_pos] + "\n... [Saída truncada pelo Harness para preservar contexto]"
             return result
         except TypeError as te:
             return f"Erro de parâmetro na chamada da ferramenta '{tool_name}': {str(te)}. Corrija os argumentos."
@@ -164,18 +201,16 @@ class DevSREHarness:
             )
         )
 
-        if not self.api_key or self.api_key == "seu_gemini_api_key_aqui":
+        client = self._get_genai_client()
+        if client is None:
             console.print(
                 "[yellow]Aviso: GEMINI_API_KEY não configurada no .env. Executando em modo de demonstração local do Harness.[/yellow]"
             )
             return self._run_local_demo(user_instruction)
 
-        # Import lazy da SDK oficial do Google GenAI
         try:
-            from google import genai
             from google.genai import types
 
-            client = genai.Client(api_key=self.api_key)
             tools = self._build_gemini_tools()
 
             system_instruction = (
@@ -198,7 +233,8 @@ class DevSREHarness:
                 ),
             )
 
-            response = chat.send_message(user_instruction)
+            # Envia a mensagem com retry resiliente
+            response = _call_with_retry(lambda: chat.send_message(user_instruction))
 
             # Extração segura de texto para evitar ValueError em respostas sem bloco de texto direto
             final_text = ""
@@ -227,31 +263,37 @@ class DevSREHarness:
             return final_text
 
         except Exception as e:
-            console.print(f"[bold red]Erro no loop com a API:[/bold red] {e}")
+            err_str = str(e)
+            console.print(f"[bold red]Erro no loop com a API:[/bold red] {err_str}")
+            if any(term in err_str.lower() for term in ["api_key", "unauthenticated", "401", "permission_denied"]):
+                console.print(
+                    "[bold yellow]Falha de autenticação detectada: verifique se sua GEMINI_API_KEY no arquivo .env é válida.[/bold yellow]"
+                )
             console.print("[dim]Executando fallback para o modo demonstrativo local...[/dim]")
             return self._run_local_demo(user_instruction)
 
     def generate_structured_rca(self, text_diagnosis: str) -> RootCauseAnalysisReport:
         """Estrutura o diagnóstico final em um modelo Pydantic tipado (RootCauseAnalysisReport)."""
-        if self.api_key and self.api_key != "seu_gemini_api_key_aqui":
+        client = self._get_genai_client()
+        if client is not None:
             try:
-                from google import genai
                 from google.genai import types
 
-                client = genai.Client(api_key=self.api_key)
                 prompt = (
                     "Com base no diagnóstico técnico a seguir, extraia as informações e responda no formato JSON "
                     "estritamente aderente ao schema de Root Cause Analysis:\n\n"
                     f"{text_diagnosis}"
                 )
-                rca_response = client.models.generate_content(
-                    model=self.model_name,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        response_schema=RootCauseAnalysisReport,
-                        temperature=0.1,
-                    ),
+                rca_response = _call_with_retry(
+                    lambda: client.models.generate_content(
+                        model=self.model_name,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            response_schema=RootCauseAnalysisReport,
+                            temperature=0.1,
+                        ),
+                    )
                 )
                 if rca_response.text:
                     report = RootCauseAnalysisReport.model_validate_json(rca_response.text)
