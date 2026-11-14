@@ -2,7 +2,7 @@
 
 [![CI Pipeline](https://github.com/usuario/devsre-copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/usuario/devsre-copilot/actions)
 ![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)
-![Multi-Language](https://img.shields.io/badge/Polyglot-Java%20%7C%20Node%20%7C%20Go%20%7C%20Rust%20%7C%20Python-blueviolet.svg)
+![Multi-Language](https://img.shields.io/badge/Polyglot-Java%20%7C%20Node%20%7C%20Go%20%7C%20Rust%20%7C%20.NET%20%7C%20Python-blueviolet.svg)
 ![MCP v1](https://img.shields.io/badge/MCP-FastMCP_v1-green.svg)
 ![LLM Engine](https://img.shields.io/badge/LLM-Gemini_3.8_Flash-orange.svg)
 ![RAG Hit Rate](https://img.shields.io/badge/RAG_Evals-100%25_Hit_Rate-brightgreen.svg)
@@ -76,14 +76,18 @@ O **DevSRE-Companion** atua como um engenheiro autônomo: diante de bugs, falhas
   * **Hit Rate de Palavra-chave Técnica:** `100.0%`
 
 ### 3. AI Harness Resiliente com Auto-Healing
-* Orquestrador em [`src/agent/harness.py`](file:///F:/projetos/devsre-copilot/src/agent/harness.py) utilizando o modelo `gemini-3.8-flash`.
+* Orquestrador em [`src/agent/harness.py`](file:///F:/projetos/devsre-copilot/src/agent/harness.py) utilizando o modelo `gemini-3.8-flash` via SDK oficial `google-genai`.
 * **Mecanismo de Auto-Healing:** Se um patch sugerido falhar na suíte de testes, o harness captura o traceback de erro, reinjeta o contexto na janela de raciocínio do modelo e executa até 3 tentativas de autocorreção antes de finalizar.
+* **Resiliência com Backoff Exponencial:** Função `_call_with_retry` protege chamadas com a API contra erros transitórios de rede, com detecção rápida (*fail-fast*) de credenciais inválidas (401/403).
+* **Gestão Inteligente de Contexto:** Truncagem limpa em quebras de linha (`rfind('\n')`) a até 5.000 caracteres por saída de ferramenta, prevenindo corrupção de tokens e preservando a janela de atenção.
 * **Saída Tipada Estruturada:** Utilização de esquemas Pydantic em [`src/agent/schemas.py`](file:///F:/projetos/devsre-copilot/src/agent/schemas.py) para garantir que diagnósticos de Causa Raiz sigam padrões estritos de auditoria.
 
 ### 4. Segurança e Defesa em Profundidade (Security Guardrails)
-* **Anti-Path Traversal:** Verificação canônica com `pathlib.Path.is_relative_to()` em todas as operações de disco, impedindo ataques de escape de diretório (ex.: `../../etc/passwd`).
-* **Sanitização de Segredos:** Redação determinística por Regex de chaves Google (`AIza...`), Bearer tokens, JWTs e credenciais de bancos de dados antes de serem transmitidos ao modelo ou gravados em logs.
-* **Human-in-the-Loop Gate:** A ferramenta `apply_patch` gera um diff colorido e exige confirmação explícita interativa (`[s/N]`) do operador no terminal antes de alterar qualquer byte em disco.
+* **Anti-Path Traversal & Safe Repos:** Dupla barreira com `_resolve_safe_path` (verificação canônica `is_relative_to`, bloqueio de drives Windows `C:` e arquivos sensíveis) e `_resolve_safe_repo_dir` (bloqueio de raízes de disco `C:\`, `/` e pastas de sistema `.git`, `.venv`).
+* **Sanitização de Segredos Multi-Provedor:** Mascaramento determinístico por Regex de chaves Google (`AIza...`, `AQ...`), Bearer tokens, JWTs, URIs de banco de dados, credenciais AWS (`AKIA...`), GitHub Personal Access Tokens (`ghp_...`) e chaves Stripe (`sk_live_...`).
+* **Gravação Atômica de Patches:** A ferramenta `apply_patch` grava alterações através de arquivo temporário seguro `.tmp_patch` seguido de substituição atômica (`replace`), prevenindo corrupção em caso de queda de energia ou falha de I/O.
+* **Human-in-the-Loop Gate:** A ferramenta `apply_patch` gera diff colorido e exige confirmação explícita interativa (`[s/N]`) antes de alterar o disco, além de exigir flag `--yes` em ambientes não-interativos.
+* **Timeouts Configuráveis:** Timeouts para comandos de Git e testes configuráveis via variáveis de ambiente (`DEVSRE_GIT_STATUS_TIMEOUT`, `DEVSRE_GIT_DIFF_TIMEOUT`, `DEVSRE_TEST_TIMEOUT`).
 
 ### 5. Fine-Tuning Especializado com LoRA / QLoRA no Google Colab Pro
 * Pipeline em [`colab_finetuning/`](file:///F:/projetos/devsre-copilot/colab_finetuning/) para adaptar modelos SLM (Gemma 2 2B / Llama 3.2 3B) para geração de RCA corporativo.
@@ -125,12 +129,17 @@ devsre-copilot/
 │   ├── sample_app/                   # Microsserviço de teste com bug intencional
 │   └── cli.py                        # Ponto de entrada da CLI devsre
 ├── tests/
-│   ├── test_auth.py                  # Teste de contrato da aplicação de exemplo
+│   ├── test_auth.py                  # Teste de contrato da aplicação de exemplo (laboratório)
+│   ├── test_cli.py                   # Testes unitários do CLI devsre e seus subcomandos
+│   ├── test_harness.py               # Testes do AI Harness, ReAct loop, retry e RCA
 │   ├── test_rag.py                   # Testes de integridade do chunking e busca vetorial
-│   └── test_tools.py                 # Testes unitários, de segurança e detecção poliglota
-├── pyproject.toml                    # Configuração de empacotamento PEP 621
+│   └── test_tools.py                 # Testes unitários de ferramentas MCP, segurança e poliglota
+├── .env.example                      # Template de variáveis de ambiente
+├── LICENSE                           # Licença MIT de código aberto
+├── main.py                           # Ponto de entrada / atalho Python direto
+├── pyproject.toml                    # Configuração de empacotamento PEP 621 e ferramentas (Ruff, Pytest)
 ├── requirements.txt                  # Dependências fixadas
-├── TASKS.md                          # Painel persistente de controle de tarefas
+├── TASKS.md                          # Painel persistente de controle de tarefas e histórico
 └── README.md                         # Documentação completa
 ```
 
@@ -168,30 +177,59 @@ copy .env.example .env        # No Windows
 
 ### 1. Investigar e Auto-Corrigir um Incidente
 ```bash
+# Modo Interativo padrão (solicita confirmação [s/N] antes de aplicar patch)
 devsre investigate --repo . "Investigue a falha no teste test_auth.py e proponha a correção"
+
+# Modo Headless / CI/CD (aprovação automática de alterações)
+devsre investigate --repo . --yes "Investigue e aplique a correção automaticamente"
+
+# Exportação do Relatório Estruturado de RCA em JSON (Pydantic Schema)
+devsre investigate --repo . --json "Diagnostique a causa da falha nos testes"
 ```
 O agente irá:
-1. Inspecionar o Git e executar a suíte de testes.
+1. Inspecionar o Git e executar a suíte de testes com detecção poliglota automática.
 2. Identificar a falha (`AssertionError: Header 'X-Token-Expired' is missing`).
 3. Consultar a base RAG e recuperar a regra no runbook `runbook_auth_jwt.md`.
-4. Exibir o diff e solicitar sua confirmação (`[s/N]`) para aplicar o patch.
+4. Exibir o diff colorido e solicitar sua confirmação (`[s/N]`) para aplicar o patch em disco (escrita atômica).
 5. Re-executar os testes para confirmar o **Auto-Healing**.
 6. Emitir o relatório estruturado de Root Cause Analysis (RCA).
 
-### 2. Rodar a Suíte de Avaliação do RAG
+### 2. Iniciar o Servidor MCP via STDIO
+```bash
+devsre mcp-serve
+```
+Inicia o servidor oficial FastMCP para conexão com clientes externos compatíveis com Model Context Protocol (ex.: **Claude Desktop**, **Cursor**, ou orquestradores externos).
+
+### 3. Rodar a Suíte de Avaliação (Evals) do RAG
 ```bash
 devsre eval
 ```
+Avalia de forma automatizada o *Hit Rate de Fonte* e a precisão de *Palavras-Chave Técnicas* frente ao Ground Truth de incidentes.
 
-### 3. Re-indexar a Base de Runbooks
+### 4. Re-indexar a Base de Runbooks
 ```bash
 devsre rag-index
 ```
+Lê e indexa todos os documentos Markdown de `knowledge_base/` no banco vetorial ChromaDB persistente.
 
-### 4. Executar a Suíte Completa de Testes
+### 5. Executar a Suíte Completa de Testes
 ```bash
 pytest -v
 ```
+
+---
+
+## ⚙️ Variáveis de Ambiente Suportadas
+
+Configure no arquivo `.env` ou nas variáveis de ambiente da sessão:
+
+| Variável | Padrão | Descrição |
+| :--- | :--- | :--- |
+| `GEMINI_API_KEY` | *(obrigatório)* | Chave de API do Google Gemini ([AI Studio](https://aistudio.google.com/)). |
+| `LOG_LEVEL` | `INFO` | Nível de verbosidade do logging (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
+| `DEVSRE_TEST_TIMEOUT` | `60` | Tempo limite em segundos para execução de testes via MCP. |
+| `DEVSRE_GIT_STATUS_TIMEOUT` | `10` | Tempo limite em segundos para `git status`. |
+| `DEVSRE_GIT_DIFF_TIMEOUT` | `15` | Tempo limite em segundos para `git diff`. |
 
 ---
 
@@ -201,10 +239,10 @@ pytest -v
 | :--- | :--- | :--- |
 | **RAG Knowledge Engine** | Source Hit Rate @ 2 | **100.0%** |
 | **RAG Knowledge Engine** | Keyword Hit Rate | **100.0%** |
-| **Security Guardrails** | Bloqueio de Path Traversal & Dotfiles | **100% de Aprovação (.env, .git, ../ bloqueados)** |
+| **Security Guardrails** | Bloqueio de Path Traversal & Dotfiles | **100% de Aprovação (.env, .git, ../ e raízes bloqueados)** |
 | **Security Guardrails** | Redação de Segredos em Logs | **100% dos tokens mascarados (Google AQ/AIza, JWT, Bearer, AWS, GitHub, Stripe)** |
 | **Polyglot Test Runner** | Detecção Multi-Linguagem | **Java (Maven/Gradle), Node, Go, Rust, .NET e Python** |
-| **Suíte de Testes** | Cobertura Unitária, Harness, CLI e Segurança | **46 aprovados, 1 xfailed (laboratório de incidente)** |
+| **Suíte de Testes** | Cobertura Unitária, Harness, CLI e Segurança | **47 testes (46 aprovados, 1 xfailed esperado de laboratório)** |
 
 ---
 
