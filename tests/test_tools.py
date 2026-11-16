@@ -387,17 +387,18 @@ def test_detect_project_ecosystem_python_default():
 
 def test_sanitize_sensitive_data_masks_aws_github_stripe():
     """Valida redação de credenciais de nuvem e terceiros (AWS, GitHub, Stripe)."""
+    stripe_dummy = "sk_test_" + "51A2B3C4D5E6F7G8H9I0J1K2"
     raw = (
         "AWS credentials: AKIAIOSFODNN7EXAMPLE\n"
         "GitHub token: ghp_1234567890abcdefghijklmnopqrstuvwxyzAB\n"
-        f"Stripe key: {'sk_test_' + '51A2B3C4D5E6F7G8H9I0J1K2'}\n"
+        f"Stripe key: {stripe_dummy}\n"
     )
     sanitized = sanitize_sensitive_data(raw)
     assert "AKIAIOSFODNN7EXAMPLE" not in sanitized
     assert "[REDACTED_AWS_KEY]" in sanitized
     assert "ghp_1234567890abcdefghijklmnopqrstuvwxyzAB" not in sanitized
     assert "[REDACTED_GITHUB_TOKEN]" in sanitized
-    assert ("sk_test_" + "51A2B3C4D5E6F7G8H9I0J1K2") not in sanitized
+    assert stripe_dummy not in sanitized
     assert "[REDACTED_STRIPE_KEY]" in sanitized
 
 
