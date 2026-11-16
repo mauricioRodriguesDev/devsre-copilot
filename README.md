@@ -1,6 +1,6 @@
 # 🛠️ DevSRE-Companion: Autonomous AI SRE & Developer Copilot
 
-[![CI Pipeline](https://github.com/usuario/devsre-copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/usuario/devsre-copilot/actions)
+[![CI Pipeline](https://github.com/mauricioRodriguesDev/devsre-copilot/actions/workflows/ci.yml/badge.svg)](https://github.com/mauricioRodriguesDev/devsre-copilot/actions)
 ![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)
 ![Multi-Language](https://img.shields.io/badge/Polyglot-Java%20%7C%20Node%20%7C%20Go%20%7C%20Rust%20%7C%20.NET%20%7C%20Python-blueviolet.svg)
 ![MCP v1](https://img.shields.io/badge/MCP-FastMCP_v1-green.svg)
@@ -154,7 +154,7 @@ devsre-copilot/
 ### Passo a Passo
 ```bash
 # 1. Clone o repositório
-git clone https://github.com/usuario/devsre-copilot.git
+git clone https://github.com/mauricioRodriguesDev/devsre-copilot.git
 cd devsre-copilot
 
 # 2. Crie e ative o ambiente virtual
