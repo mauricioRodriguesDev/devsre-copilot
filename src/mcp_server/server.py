@@ -161,7 +161,7 @@ def _resolve_safe_repo_dir(repo_path: str = ".") -> Tuple[Optional[Path], Option
             return None, f"O caminho do repositório não aponta para um diretório: {repo_path}"
 
         # 1. Rejeita raízes absolutas do sistema de arquivos (ex: C:\, \, /)
-        if base == Path(base.anchor) or str(base) == base.drive + "\\":
+        if base == Path(base.anchor) or (base.drive and str(base) in (base.drive + "\\", base.drive + "/")):
             return None, f"Segurança: não é permitido executar operações na raiz do sistema ('{repo_path}')."
 
         # 2. Rejeita pastas sensíveis protegidas
@@ -187,7 +187,11 @@ def _resolve_safe_path(file_path: str, repo_path: str = ".") -> Tuple[Optional[P
         clean = Path(file_path)
 
         # 1. Rejeita caminhos absolutos ou com unidade de disco (ex: C:/Windows/..., C:foo, /etc/passwd)
-        if clean.is_absolute() or bool(clean.drive):
+        # Suporta tanto convenções POSIX quanto Windows independentemente do SO do host
+        clean_str = str(file_path).strip()
+        has_win_drive = bool(re.match(r"^[a-zA-Z]:", clean_str))
+        is_posix_abs = clean_str.startswith(("/", "\\"))
+        if clean.is_absolute() or bool(clean.drive) or has_win_drive or is_posix_abs:
             return None, f"Segurança: caminhos absolutos ou com unidade não são permitidos ('{file_path}'). Use um caminho relativo ao repositório."
 
         # 2. Bloqueia acesso a arquivos ou extensões sensíveis (.env, .pem, .key, credentials.json)

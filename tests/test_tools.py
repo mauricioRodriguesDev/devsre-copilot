@@ -136,10 +136,15 @@ def test_read_file_blocks_relative_traversal():
 
 
 def test_read_file_blocks_absolute_path():
-    """Garante que caminhos absolutos do sistema sejam bloqueados."""
+    """Garante que caminhos absolutos do sistema sejam bloqueados em Windows e Linux/POSIX."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        result = read_file(file_path="C:/Windows/win.ini", repo_path=tmpdir)
-        assert "Segurança: caminhos absolutos ou com unidade não são permitidos" in result
+        # Formato Windows com unidade
+        result_win = read_file(file_path="C:/Windows/win.ini", repo_path=tmpdir)
+        assert "Segurança: caminhos absolutos ou com unidade não são permitidos" in result_win
+
+        # Formato POSIX / Linux
+        result_posix = read_file(file_path="/etc/passwd", repo_path=tmpdir)
+        assert "Segurança: caminhos absolutos ou com unidade não são permitidos" in result_posix
 
 
 def test_apply_patch_blocks_traversal():
