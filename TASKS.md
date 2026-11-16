@@ -63,7 +63,7 @@ Este arquivo serve como **memória persistente** do projeto. Ele registra o prog
 ### Fase 7: Publicação e Apresentação de Portfólio
 - [x] Atualização final do `README.md` com badges de CI, métricas, guardrails e diagrama arquitetural
 - [x] Criação do arquivo de licença de código aberto `LICENSE` (MIT)
-- [ ] Conexão e envio para repositório remoto no GitHub (`git push -u origin master`)
+- [x] Conexão e envio para repositório remoto no GitHub (`git push -u origin main`)
 
 ### Fase 8: Auditoria Técnica & Hardening Avançado (CONCLUÍDA)
 - [x] **Fix P0:** Validação rigorosa de `repo_path` em `git_status`, `git_diff` e `run_tests` (`_resolve_safe_repo_dir` bloqueando raízes de sistema e pastas sensíveis)
